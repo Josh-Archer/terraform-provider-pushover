@@ -219,7 +219,7 @@ func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				},
 			},
 			"receipt": schema.StringAttribute{
-				MarkdownDescription: "Receipt token returned for emergency (`priority = 2`) messages. Use `pushover_receipt` data source to poll delivery status.",
+				MarkdownDescription: "Receipt token returned for emergency (`priority = 2`) messages. Use the `pushover_receipt` resource to track acknowledgement status and cancel outstanding retries when the incident is resolved.",
 				Computed:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
