@@ -646,6 +646,43 @@ func (c *Client) DisableGroupUser(ctx context.Context, groupKey, user, device st
 	return &resp, nil
 }
 
+// GlanceRequest holds fields for updating a Pushover glance widget.
+//
+// Only fields present in DataFields are sent. An empty string value clears a
+// previously set field on the widget (per the Glances API).
+// Valid data field keys: title, text, subtext, count, percent.
+type GlanceRequest struct {
+	Token      string
+	User       string
+	Device     string
+	DataFields map[string]string
+}
+
+// UpdateGlance pushes data to a Pushover glance widget (smartwatch/lock screen).
+// POST https://api.pushover.net/1/glances.json
+func (c *Client) UpdateGlance(ctx context.Context, req *GlanceRequest) (*APIResponse, error) {
+	token := req.Token
+	if token == "" {
+		token = c.token
+	}
+
+	params := url.Values{}
+	params.Set("token", token)
+	params.Set("user", req.User)
+	if req.Device != "" {
+		params.Set("device", req.Device)
+	}
+	for k, v := range req.DataFields {
+		params.Set(k, v)
+	}
+
+	var resp APIResponse
+	if err := c.doPost(ctx, "/glances.json", params, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (c *Client) doPost(ctx context.Context, path string, params url.Values, out interface{}) error {
 	return c.doWithRetry(ctx, http.MethodPost, path, params.Encode(), "application/x-www-form-urlencoded", out)
 }

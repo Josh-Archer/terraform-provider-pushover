@@ -89,6 +89,7 @@ func (p *PushoverProvider) Resources(_ context.Context) []func() resource.Resour
 	return []func() resource.Resource{
 		NewMessageResource,
 		NewGroupUserResource,
+		NewGlancesResource,
 	}
 }
 
