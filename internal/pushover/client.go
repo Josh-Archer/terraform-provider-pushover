@@ -13,15 +13,31 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const defaultBaseURL = "https://api.pushover.net/1"
+
+// Default retry policy for transient HTTP failures (5xx and 429).
+const (
+	defaultMaxRetries = 3
+	defaultBaseDelay  = 500 * time.Millisecond
+	defaultMaxDelay   = 8 * time.Second
+)
 
 // Client is the Pushover API client.
 type Client struct {
 	token      string
 	baseURL    string
 	httpClient *http.Client
+
+	// Optional overrides used by tests; zero values / false mean defaults.
+	retryConfigured bool
+	maxRetries      int
+	baseDelay       time.Duration
+	maxDelay        time.Duration
+	// sleep waits for d or until ctx is cancelled. nil uses time.NewTimer.
+	sleep func(ctx context.Context, d time.Duration) error
 }
 
 // NewClient creates a new Pushover API client.
@@ -41,6 +57,28 @@ func NewClientWithBase(token, base string, httpClient *http.Client) *Client {
 		baseURL:    base,
 		httpClient: httpClient,
 	}
+}
+
+// SetRetryPolicy configures bounded retry behaviour. Intended for tests.
+// maxRetries is the number of retries after the first attempt (total attempts = maxRetries+1).
+// Pass 0 for maxRetries to disable retries.
+func (c *Client) SetRetryPolicy(maxRetries int, baseDelay, maxDelay time.Duration) {
+	c.retryConfigured = true
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+	c.maxRetries = maxRetries
+	if baseDelay > 0 {
+		c.baseDelay = baseDelay
+	}
+	if maxDelay > 0 {
+		c.maxDelay = maxDelay
+	}
+}
+
+// SetSleepForTest overrides the backoff wait function. Intended for tests only.
+func (c *Client) SetSleepForTest(fn func(ctx context.Context, d time.Duration) error) {
+	c.sleep = fn
 }
 
 // APIResponse is the base Pushover API response.
@@ -325,75 +363,159 @@ func (c *Client) DisableGroupUser(ctx context.Context, groupKey, user, device st
 }
 
 func (c *Client) doPost(ctx context.Context, path string, params url.Values, out interface{}) error {
-	u := c.baseURL + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(params.Encode()))
-	if err != nil {
-		return fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("sending request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("reading response: %w", err)
-	}
-
-	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
-	}
-
-	// Check for API-level errors
-	type statusChecker struct {
-		Status int      `json:"status"`
-		Errors []string `json:"errors"`
-	}
-	var sc statusChecker
-	_ = json.Unmarshal(body, &sc)
-	if sc.Status != 1 {
-		return fmt.Errorf("pushover API error: %s", strings.Join(sc.Errors, "; "))
-	}
-
-	return nil
+	return c.doWithRetry(ctx, http.MethodPost, path, params.Encode(), "application/x-www-form-urlencoded", out)
 }
 
 func (c *Client) doGet(ctx context.Context, path string, out interface{}) error {
-	u := c.baseURL + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return fmt.Errorf("creating request: %w", err)
+	return c.doWithRetry(ctx, http.MethodGet, path, "", "", out)
+}
+
+func (c *Client) maxRetriesOrDefault() int {
+	if c.retryConfigured {
+		return c.maxRetries
+	}
+	return defaultMaxRetries
+}
+
+func (c *Client) baseDelayOrDefault() time.Duration {
+	if c.baseDelay > 0 {
+		return c.baseDelay
+	}
+	return defaultBaseDelay
+}
+
+func (c *Client) maxDelayOrDefault() time.Duration {
+	if c.maxDelay > 0 {
+		return c.maxDelay
+	}
+	return defaultMaxDelay
+}
+
+func (c *Client) doWithRetry(ctx context.Context, method, path, body, contentType string, out interface{}) error {
+	maxRetries := c.maxRetriesOrDefault()
+	var nextDelay time.Duration
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			if err := c.wait(ctx, nextDelay); err != nil {
+				return err
+			}
+		}
+
+		u := c.baseURL + path
+		var bodyReader io.Reader
+		if method != http.MethodGet {
+			bodyReader = strings.NewReader(body)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, u, bodyReader)
+		if err != nil {
+			return fmt.Errorf("creating request: %w", err)
+		}
+		if contentType != "" {
+			req.Header.Set("Content-Type", contentType)
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("sending request: %w", err)
+		}
+
+		respBody, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			return fmt.Errorf("reading response: %w", err)
+		}
+
+		if isRetryableStatus(resp.StatusCode) {
+			nextDelay = c.retryDelay(attempt, resp.Header)
+			if attempt < maxRetries {
+				continue
+			}
+			return fmt.Errorf("pushover API returned HTTP %d after %d attempts", resp.StatusCode, attempt+1)
+		}
+
+		if err := json.Unmarshal(respBody, out); err != nil {
+			return fmt.Errorf("decoding response: %w", err)
+		}
+
+		type statusChecker struct {
+			Status int      `json:"status"`
+			Errors []string `json:"errors"`
+		}
+		var sc statusChecker
+		_ = json.Unmarshal(respBody, &sc)
+		if sc.Status != 1 {
+			return fmt.Errorf("pushover API error: %s", strings.Join(sc.Errors, "; "))
+		}
+
+		return nil
 	}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("sending request: %w", err)
-	}
-	defer resp.Body.Close()
+	return fmt.Errorf("pushover API request failed")
+}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("reading response: %w", err)
-	}
+func isRetryableStatus(code int) bool {
+	return code == http.StatusTooManyRequests || code >= 500
+}
 
-	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+// retryDelay returns how long to wait before the next attempt.
+// Prefer Retry-After when present; otherwise exponential backoff from baseDelay.
+// attempt is the zero-based index of the attempt that just failed.
+func (c *Client) retryDelay(attempt int, header http.Header) time.Duration {
+	if d, ok := parseRetryAfter(header.Get("Retry-After")); ok {
+		return d
 	}
+	base := c.baseDelayOrDefault()
+	max := c.maxDelayOrDefault()
+	delay := base
+	for i := 0; i < attempt; i++ {
+		if delay >= max {
+			return max
+		}
+		delay *= 2
+	}
+	if delay > max {
+		return max
+	}
+	return delay
+}
 
-	type statusChecker struct {
-		Status int      `json:"status"`
-		Errors []string `json:"errors"`
+// parseRetryAfter parses a Retry-After header value (delta-seconds or HTTP-date).
+func parseRetryAfter(v string) (time.Duration, bool) {
+	if v == "" {
+		return 0, false
 	}
-	var sc statusChecker
-	_ = json.Unmarshal(body, &sc)
-	if sc.Status != 1 {
-		return fmt.Errorf("pushover API error: %s", strings.Join(sc.Errors, "; "))
+	if secs, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+		if secs < 0 {
+			return 0, true
+		}
+		return time.Duration(secs) * time.Second, true
 	}
+	if t, err := http.ParseTime(v); err == nil {
+		d := time.Until(t)
+		if d < 0 {
+			return 0, true
+		}
+		return d, true
+	}
+	return 0, false
+}
 
-	return nil
+func (c *Client) wait(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	if c.sleep != nil {
+		return c.sleep(ctx, d)
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // IsGroupKey returns true if the validation response indicates the key is a group key.

@@ -10,6 +10,7 @@ The Pushover provider lets you send push notifications and manage delivery group
 - **Manage group membership** (`pushover_group_user`) – Add, remove, enable, or disable users in Pushover delivery groups.
 - **List available sounds** (`pushover_sounds`) – Query all notification sounds available to your application.
 - **Validate recipients** (`pushover_validate_user`) – Verify a user or group key and enumerate its registered devices.
+- **Resilient HTTP client** – Bounded retries with exponential backoff on transient HTTP 5xx/429 responses; honors `Retry-After` when present.
 
 ## Requirements
 

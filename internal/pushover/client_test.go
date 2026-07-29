@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Josh-Archer/terraform-provider-pushover/internal/pushover"
 )
@@ -520,5 +522,223 @@ func TestRenameGroup_Success(t *testing.T) {
 	_, err := client.RenameGroup(context.Background(), "gkey", "New Name")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// ----- Retry / backoff -----
+
+func TestSendMessage_RetriesOn503ThenSucceeds(t *testing.T) {
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`temporary`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("tok", srv.URL, srv.Client())
+	_, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:    "u",
+		Message: "retry me",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+}
+
+func TestSendMessage_RetriesOn429(t *testing.T) {
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`rate limited`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("tok", srv.URL, srv.Client())
+	_, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:    "u",
+		Message: "rate limit",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+}
+
+func TestSendMessage_ExhaustsRetriesOnPersistent5xx(t *testing.T) {
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`boom`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("tok", srv.URL, srv.Client())
+	// 2 retries → 3 total attempts
+	client.SetRetryPolicy(2, time.Millisecond, time.Second)
+
+	_, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:    "u",
+		Message: "fail",
+	})
+	if err == nil {
+		t.Fatal("expected error after exhausting retries")
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("expected error to mention HTTP 500, got: %v", err)
+	}
+}
+
+func TestSendMessage_DoesNotRetryClientErrors(t *testing.T) {
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(errorResponse("application token is invalid")))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("bad", srv.URL, srv.Client())
+	_, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:    "u",
+		Message: "no retry",
+	})
+	if err == nil {
+		t.Fatal("expected API error")
+	}
+	if attempts != 1 {
+		t.Fatalf("expected a single attempt for 422, got %d", attempts)
+	}
+}
+
+func TestSendMessage_HonorsRetryAfterHeader(t *testing.T) {
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.Header().Set("Retry-After", "2")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer srv.Close()
+
+	var sleeps []time.Duration
+	client := pushover.NewClientWithBase("tok", srv.URL, srv.Client())
+	client.SetSleepForTest(func(ctx context.Context, d time.Duration) error {
+		sleeps = append(sleeps, d)
+		return nil
+	})
+
+	_, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:    "u",
+		Message: "retry-after",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sleeps) != 1 {
+		t.Fatalf("expected 1 sleep, got %d (%v)", len(sleeps), sleeps)
+	}
+	if sleeps[0] != 2*time.Second {
+		t.Errorf("expected Retry-After delay of 2s, got %v", sleeps[0])
+	}
+}
+
+func TestSendMessage_ExponentialBackoffWithoutRetryAfter(t *testing.T) {
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts <= 3 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer srv.Close()
+
+	var sleeps []time.Duration
+	client := pushover.NewClientWithBase("tok", srv.URL, srv.Client())
+	client.SetRetryPolicy(3, 100*time.Millisecond, 10*time.Second)
+	client.SetSleepForTest(func(ctx context.Context, d time.Duration) error {
+		sleeps = append(sleeps, d)
+		return nil
+	})
+
+	_, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:    "u",
+		Message: "backoff",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Delays after attempts 0,1,2 → 100ms, 200ms, 400ms
+	want := []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond}
+	if len(sleeps) != len(want) {
+		t.Fatalf("expected %d sleeps, got %d (%v)", len(want), len(sleeps), sleeps)
+	}
+	for i := range want {
+		if sleeps[i] != want[i] {
+			t.Errorf("sleep[%d]: want %v, got %v", i, want[i], sleeps[i])
+		}
+	}
+}
+
+func TestGetSounds_RetriesOn5xx(t *testing.T) {
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":1,"request":"r1","sounds":{"pushover":"Pushover (default)"}}`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("tok", srv.URL, srv.Client())
+	sounds, err := client.GetSounds(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sounds) != 1 {
+		t.Fatalf("expected 1 sound, got %d", len(sounds))
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
 	}
 }

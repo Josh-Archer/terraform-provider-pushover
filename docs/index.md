@@ -36,6 +36,17 @@ terraform apply
 
 You will need a **Pushover application API token**. Create one by registering an application at [https://pushover.net/apps/build](https://pushover.net/apps/build).
 
+## Reliability
+
+The provider's HTTP client automatically retries **transient** Pushover API failures:
+
+- HTTP **429** (rate limited)
+- HTTP **5xx** (server errors)
+
+Retries are **bounded** (up to 3 retries after the initial attempt) with **exponential backoff** (starting at 500ms, capped at 8s). When the response includes a `Retry-After` header, that value is honored instead of the default backoff.
+
+Non-retryable client errors (for example HTTP 4xx validation failures) fail immediately without retry.
+
 ## Schema
 
 ### Required (one of)
