@@ -77,3 +77,21 @@ resource "pushover_message" "device_specific" {
   message  = "This notification goes only to your iPhone."
   device   = "iphone"
 }
+
+# --- Example 6: Image attachment (local file or remote URL) ---
+# Max size: 5,242,880 bytes (5 MiB). One attachment per message.
+# Supported: JPEG, PNG, GIF, WebP, and other image types accepted by Pushover clients.
+resource "pushover_message" "with_attachment" {
+  user_key        = var.pushover_user_key
+  message         = "See attached screenshot from the deploy pipeline."
+  title           = "Deploy Screenshot"
+  attachment      = "${path.module}/screenshots/deploy.png"
+  attachment_type = "image/png" # optional; inferred when omitted
+}
+
+# Remote URLs are downloaded by the provider, then uploaded to the Pushover API.
+# resource "pushover_message" "with_remote_attachment" {
+#   user_key   = var.pushover_user_key
+#   message    = "Latest status graph"
+#   attachment = "https://example.com/status/graph.png"
+# }

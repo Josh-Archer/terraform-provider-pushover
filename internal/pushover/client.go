@@ -5,12 +5,18 @@
 package pushover
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,12 +24,8 @@ import (
 
 const defaultBaseURL = "https://api.pushover.net/1"
 
-// Default retry policy for transient HTTP failures (5xx and 429).
-const (
-	defaultMaxRetries = 3
-	defaultBaseDelay  = 500 * time.Millisecond
-	defaultMaxDelay   = 8 * time.Second
-)
+// MaxAttachmentBytes is the Pushover API attachment size limit (5 MiB).
+const MaxAttachmentBytes = 5_242_880
 
 // Client is the Pushover API client.
 type Client struct {
@@ -107,6 +109,13 @@ type MessageRequest struct {
 	Retry    int    `json:"retry,omitempty"`
 	Expire   int    `json:"expire,omitempty"`
 	Callback string `json:"callback,omitempty"`
+
+	// Attachment is a local filesystem path or http(s) URL of an image to attach.
+	// The file is uploaded via multipart/form-data. Max size: MaxAttachmentBytes.
+	Attachment string `json:"-"`
+	// AttachmentType is an optional MIME type override (e.g. "image/jpeg").
+	// When empty, the type is inferred from the filename or Content-Type header.
+	AttachmentType string `json:"-"`
 }
 
 // MessageResponse is the response from sending a message.
@@ -172,9 +181,15 @@ type GroupMember struct {
 }
 
 // SendMessage sends a notification via the Pushover API.
+// When Attachment is set, the request is sent as multipart/form-data with the
+// image file included. Otherwise, application/x-www-form-urlencoded is used.
 func (c *Client) SendMessage(ctx context.Context, req *MessageRequest) (*MessageResponse, error) {
 	if req.Token == "" {
 		req.Token = c.token
+	}
+
+	if req.Attachment != "" {
+		return c.sendMessageWithAttachment(ctx, req)
 	}
 
 	params := url.Values{}
@@ -222,6 +237,275 @@ func (c *Client) SendMessage(ctx context.Context, req *MessageRequest) (*Message
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// attachmentData holds loaded attachment bytes and metadata.
+type attachmentData struct {
+	filename    string
+	contentType string
+	data        []byte
+}
+
+// loadAttachment reads attachment bytes from a local path or remote http(s) URL.
+func (c *Client) loadAttachment(ctx context.Context, source, typeOverride string) (*attachmentData, error) {
+	if isRemoteURL(source) {
+		return c.downloadAttachment(ctx, source, typeOverride)
+	}
+	return readLocalAttachment(source, typeOverride)
+}
+
+func isRemoteURL(source string) bool {
+	return strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://")
+}
+
+func readLocalAttachment(path, typeOverride string) (*attachmentData, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading attachment file: %w", err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("attachment path is a directory: %s", path)
+	}
+	if info.Size() > MaxAttachmentBytes {
+		return nil, fmt.Errorf("attachment size %d exceeds Pushover limit of %d bytes (5 MiB)", info.Size(), MaxAttachmentBytes)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading attachment file: %w", err)
+	}
+	if len(data) > MaxAttachmentBytes {
+		return nil, fmt.Errorf("attachment size %d exceeds Pushover limit of %d bytes (5 MiB)", len(data), MaxAttachmentBytes)
+	}
+
+	filename := filepath.Base(path)
+	contentType := typeOverride
+	if contentType == "" {
+		contentType = mimeTypeFromFilename(filename)
+	}
+
+	return &attachmentData{
+		filename:    filename,
+		contentType: contentType,
+		data:        data,
+	}, nil
+}
+
+func (c *Client) downloadAttachment(ctx context.Context, rawURL, typeOverride string) (*attachmentData, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating attachment download request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("downloading attachment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("downloading attachment: unexpected status %s", resp.Status)
+	}
+
+	// Cap read at MaxAttachmentBytes+1 so we can detect oversize without loading everything.
+	limited := io.LimitReader(resp.Body, MaxAttachmentBytes+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, fmt.Errorf("reading attachment body: %w", err)
+	}
+	if len(data) > MaxAttachmentBytes {
+		return nil, fmt.Errorf("attachment size exceeds Pushover limit of %d bytes (5 MiB)", MaxAttachmentBytes)
+	}
+
+	filename := filenameFromURL(rawURL)
+	if filename == "" || filename == "." || filename == "/" {
+		filename = "attachment"
+	}
+
+	contentType := typeOverride
+	if contentType == "" {
+		if ct := resp.Header.Get("Content-Type"); ct != "" {
+			// Strip parameters such as "; charset=utf-8".
+			if mediaType, _, err := mime.ParseMediaType(ct); err == nil && mediaType != "" {
+				contentType = mediaType
+			} else {
+				contentType = ct
+			}
+		}
+	}
+	if contentType == "" || contentType == "application/octet-stream" {
+		if inferred := mimeTypeFromFilename(filename); inferred != "application/octet-stream" {
+			contentType = inferred
+		}
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	return &attachmentData{
+		filename:    filename,
+		contentType: contentType,
+		data:        data,
+	}, nil
+}
+
+func filenameFromURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "attachment"
+	}
+	base := filepath.Base(u.Path)
+	if base == "" || base == "." || base == "/" {
+		return "attachment"
+	}
+	return base
+}
+
+func mimeTypeFromFilename(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	if ext == "" {
+		return "application/octet-stream"
+	}
+	if t := mime.TypeByExtension(ext); t != "" {
+		// Strip parameters.
+		if mediaType, _, err := mime.ParseMediaType(t); err == nil {
+			return mediaType
+		}
+		return t
+	}
+	// Common image types that may not be registered on all platforms.
+	switch ext {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".bmp":
+		return "image/bmp"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+func (c *Client) sendMessageWithAttachment(ctx context.Context, req *MessageRequest) (*MessageResponse, error) {
+	att, err := c.loadAttachment(ctx, req.Attachment, req.AttachmentType)
+	if err != nil {
+		return nil, err
+	}
+
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+
+	fields := map[string]string{
+		"token":    req.Token,
+		"user":     req.User,
+		"message":  req.Message,
+		"priority": strconv.Itoa(req.Priority),
+	}
+	if req.Title != "" {
+		fields["title"] = req.Title
+	}
+	if req.URL != "" {
+		fields["url"] = req.URL
+	}
+	if req.URLTitle != "" {
+		fields["url_title"] = req.URLTitle
+	}
+	if req.Sound != "" {
+		fields["sound"] = req.Sound
+	}
+	if req.Device != "" {
+		fields["device"] = req.Device
+	}
+	if req.Timestamp != 0 {
+		fields["timestamp"] = strconv.FormatInt(req.Timestamp, 10)
+	}
+	if req.HTML != 0 {
+		fields["html"] = strconv.Itoa(req.HTML)
+	}
+	if req.Monospace != 0 {
+		fields["monospace"] = strconv.Itoa(req.Monospace)
+	}
+	if req.TTL != 0 {
+		fields["ttl"] = strconv.Itoa(req.TTL)
+	}
+	if req.Priority == 2 {
+		fields["retry"] = strconv.Itoa(req.Retry)
+		fields["expire"] = strconv.Itoa(req.Expire)
+		if req.Callback != "" {
+			fields["callback"] = req.Callback
+		}
+	}
+
+	for k, v := range fields {
+		if err := w.WriteField(k, v); err != nil {
+			return nil, fmt.Errorf("writing multipart field %q: %w", k, err)
+		}
+	}
+
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="attachment"; filename="%s"`, escapeQuotes(att.filename)))
+	h.Set("Content-Type", att.contentType)
+	part, err := w.CreatePart(h)
+	if err != nil {
+		return nil, fmt.Errorf("creating attachment part: %w", err)
+	}
+	if _, err := part.Write(att.data); err != nil {
+		return nil, fmt.Errorf("writing attachment data: %w", err)
+	}
+
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("closing multipart writer: %w", err)
+	}
+
+	var resp MessageResponse
+	if err := c.doPostMultipart(ctx, "/messages.json", w.FormDataContentType(), &body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func escapeQuotes(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)
+}
+
+func (c *Client) doPostMultipart(ctx context.Context, path, contentType string, body io.Reader, out interface{}) error {
+	u := c.baseURL + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, body)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("sending request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response: %w", err)
+	}
+
+	if err := json.Unmarshal(respBody, out); err != nil {
+		return fmt.Errorf("decoding response: %w", err)
+	}
+
+	type statusChecker struct {
+		Status int      `json:"status"`
+		Errors []string `json:"errors"`
+	}
+	var sc statusChecker
+	_ = json.Unmarshal(respBody, &sc)
+	if sc.Status != 1 {
+		return fmt.Errorf("pushover API error: %s", strings.Join(sc.Errors, "; "))
+	}
+
+	return nil
 }
 
 // GetReceipt retrieves delivery status for an emergency message receipt.

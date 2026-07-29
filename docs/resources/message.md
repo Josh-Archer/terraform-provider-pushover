@@ -68,6 +68,36 @@ resource "pushover_message" "targeted" {
 }
 ```
 
+### Message with image attachment
+
+Attachments are uploaded as binary image data via the Pushover API (`multipart/form-data`). The provider accepts either a **local file path** or a **remote `http(s)` URL**. Remote URLs are downloaded by the provider first; Pushover does not fetch URLs itself.
+
+**Limits (enforced by the Pushover API):**
+
+| Constraint | Limit |
+| --- | --- |
+| Max size | **5,242,880 bytes (5 MiB)** |
+| Count | **One** attachment per message |
+| Types | Image formats supported by Pushover clients (JPEG, PNG, GIF, WebP, etc.) |
+
+```terraform
+# Local file
+resource "pushover_message" "with_local_image" {
+  user_key        = var.pushover_user_key
+  message         = "Build artifact screenshot"
+  title           = "CI Result"
+  attachment      = "${path.module}/screenshots/result.png"
+  attachment_type = "image/png" # optional; inferred from extension when omitted
+}
+
+# Remote URL (downloaded by the provider, then uploaded)
+resource "pushover_message" "with_remote_image" {
+  user_key   = var.pushover_user_key
+  message    = "Latest status graph"
+  attachment = "https://example.com/status/graph.png"
+}
+```
+
 ## Schema
 
 ### Required
@@ -78,6 +108,8 @@ resource "pushover_message" "targeted" {
 ### Optional
 
 - `api_token` (String, Sensitive) — Override the provider-level API token for this message. **(Forces replacement)**
+- `attachment` (String) — Local filesystem path or remote `http(s)` URL of an image to attach. Remote URLs are downloaded by the provider and uploaded to Pushover. Max **5,242,880 bytes (5 MiB)**; one attachment per message. **(Forces replacement)**
+- `attachment_type` (String) — Optional MIME type for the attachment (e.g. `image/jpeg`). Inferred from the file extension or response `Content-Type` when omitted. Requires `attachment`. **(Forces replacement)**
 - `callback` (String) — URL to ping when an emergency (`priority = 2`) message has been acknowledged. **(Forces replacement)**
 - `device` (String) — Deliver only to this named device, instead of all of the user's devices. **(Forces replacement)**
 - `expire` (Number) — For emergency priority: stop re-sending after this many seconds. Range: 1–10800. **(Forces replacement)**
