@@ -12,7 +12,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -60,6 +62,9 @@ type MessageResourceModel struct {
 	Expire   types.Int64  `tfsdk:"expire"`
 	Callback types.String `tfsdk:"callback"`
 
+	// Idempotency control (not sent to the API)
+	IdempotencyKey types.String `tfsdk:"idempotency_key"`
+
 	// Computed
 	Receipt   types.String `tfsdk:"receipt"`
 	RequestID types.String `tfsdk:"request_id"`
@@ -72,17 +77,20 @@ func (r *MessageResource) Metadata(_ context.Context, req resource.MetadataReque
 func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Sends a Pushover notification. The message is delivered when this resource is created. " +
-			"To resend the message (e.g., when content changes), use `terraform taint` or update a trigger via `replace_triggered_by`.",
+			"Because a sent message cannot be updated via the API, **every configuration change forces replacement** and re-sends the notification.\n\n" +
+			"To prevent accidental re-sends from unrelated plan churn, prefer a one-shot lifecycle " +
+			"(`lifecycle { ignore_changes = all }`), an intentional `idempotency_key`, and/or " +
+			"`lifecycle.replace_triggered_by`. See the resource documentation for patterns.",
 		Attributes: map[string]schema.Attribute{
 			"user_key": schema.StringAttribute{
-				MarkdownDescription: "The Pushover user or group key to deliver the message to.",
+				MarkdownDescription: "The Pushover user or group key to deliver the message to. Forces replacement.",
 				Required:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"message": schema.StringAttribute{
-				MarkdownDescription: "The message body (up to 1024 characters). Supports HTML if `html` is enabled.",
+				MarkdownDescription: "The message body (up to 1024 characters). Supports HTML if `html` is enabled. Forces replacement.",
 				Required:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
@@ -92,7 +100,7 @@ func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				},
 			},
 			"api_token": schema.StringAttribute{
-				MarkdownDescription: "Override the provider-level Pushover application API token for this message.",
+				MarkdownDescription: "Override the provider-level Pushover application API token for this message. Forces replacement.",
 				Optional:            true,
 				Sensitive:           true,
 				PlanModifiers: []planmodifier.String{
@@ -100,7 +108,7 @@ func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				},
 			},
 			"title": schema.StringAttribute{
-				MarkdownDescription: "The message title (up to 250 characters). Defaults to the application name.",
+				MarkdownDescription: "The message title (up to 250 characters). Defaults to the application name. Forces replacement.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
@@ -110,7 +118,7 @@ func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				},
 			},
 			"url": schema.StringAttribute{
-				MarkdownDescription: "A supplementary URL to show with the message (up to 512 characters).",
+				MarkdownDescription: "A supplementary URL to show with the message (up to 512 characters). Forces replacement.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
@@ -120,7 +128,7 @@ func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				},
 			},
 			"url_title": schema.StringAttribute{
-				MarkdownDescription: "A title for the supplementary URL (up to 100 characters).",
+				MarkdownDescription: "A title for the supplementary URL (up to 100 characters). Forces replacement.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
@@ -130,92 +138,100 @@ func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				},
 			},
 			"priority": schema.Int64Attribute{
-				MarkdownDescription: "Message priority: `-2` (lowest), `-1` (low), `0` (normal, default), `1` (high), `2` (emergency).",
+				MarkdownDescription: "Message priority: `-2` (lowest), `-1` (low), `0` (normal, default), `1` (high), `2` (emergency). Forces replacement.",
 				Optional:            true,
 				Computed:            true,
 				Default:             int64default.StaticInt64(0),
 				Validators: []validator.Int64{
 					int64validator.Between(-2, 2),
 				},
-				PlanModifiers: []planmodifier.Int64{},
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.RequiresReplace(),
+				},
 			},
 			"sound": schema.StringAttribute{
-				MarkdownDescription: "The name of a Pushover sound to override the user's default. Use the `pushover_sounds` data source to list available sounds.",
+				MarkdownDescription: "The name of a Pushover sound to override the user's default. Use the `pushover_sounds` data source to list available sounds. Forces replacement.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"device": schema.StringAttribute{
-				MarkdownDescription: "The name of a specific device to deliver the message to, rather than all of the user's devices.",
+				MarkdownDescription: "The name of a specific device to deliver the message to, rather than all of the user's devices. Forces replacement.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"timestamp": schema.Int64Attribute{
-				MarkdownDescription: "A Unix timestamp to display instead of the time the message was received.",
+				MarkdownDescription: "A Unix timestamp to display instead of the time the message was received. Forces replacement.",
 				Optional:            true,
-				PlanModifiers:       []planmodifier.Int64{},
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.RequiresReplace(),
+				},
 			},
 			"html": schema.BoolAttribute{
-				MarkdownDescription: "Set to `true` to enable HTML formatting in the message body.",
+				MarkdownDescription: "Set to `true` to enable HTML formatting in the message body. Forces replacement.",
 				Optional:            true,
-				PlanModifiers:       []planmodifier.Bool{},
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.RequiresReplace(),
+				},
 			},
 			"monospace": schema.BoolAttribute{
-				MarkdownDescription: "Set to `true` to display the message in a monospace font.",
+				MarkdownDescription: "Set to `true` to display the message in a monospace font. Forces replacement.",
 				Optional:            true,
-				PlanModifiers:       []planmodifier.Bool{},
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.RequiresReplace(),
+				},
 			},
 			"ttl": schema.Int64Attribute{
-				MarkdownDescription: "Time to live in seconds. The message is deleted from Pushover servers after this period.",
+				MarkdownDescription: "Time to live in seconds. The message is deleted from Pushover servers after this period. Forces replacement.",
 				Optional:            true,
 				Validators: []validator.Int64{
 					int64validator.AtLeast(1),
 				},
-				PlanModifiers: []planmodifier.Int64{},
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.RequiresReplace(),
+				},
 			},
 			"retry": schema.Int64Attribute{
-				MarkdownDescription: "How often (in seconds) to re-send an emergency message until acknowledged. Required when `priority` is `2`. Minimum: 30.",
+				MarkdownDescription: "How often (in seconds) to re-send an emergency message until acknowledged. Required when `priority` is `2`. Minimum: 30. Forces replacement.",
 				Optional:            true,
 				Validators: []validator.Int64{
 					int64validator.AtLeast(30),
 				},
-				PlanModifiers: []planmodifier.Int64{},
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.RequiresReplace(),
+				},
 			},
 			"expire": schema.Int64Attribute{
-				MarkdownDescription: "How long (in seconds) to continue re-sending an emergency message. Required when `priority` is `2`. Maximum: 10800.",
+				MarkdownDescription: "How long (in seconds) to continue re-sending an emergency message. Required when `priority` is `2`. Maximum: 10800. Forces replacement.",
 				Optional:            true,
 				Validators: []validator.Int64{
 					int64validator.Between(1, 10800),
 				},
-				PlanModifiers: []planmodifier.Int64{},
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.RequiresReplace(),
+				},
 			},
 			"callback": schema.StringAttribute{
-				MarkdownDescription: "A URL to ping when an emergency message has been acknowledged.",
+				MarkdownDescription: "A URL to ping when an emergency message has been acknowledged. Forces replacement.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
-			"attachment": schema.StringAttribute{
-				MarkdownDescription: "Local filesystem path or remote `http(s)` URL of an image to attach to the message. " +
-					"Remote URLs are downloaded by the provider and uploaded to Pushover (the API does not fetch URLs itself). " +
-					"Maximum size: **5,242,880 bytes (5 MiB)**. " +
-					"Supported image types include JPEG, PNG, GIF, and other formats accepted by the Pushover clients. " +
-					"One attachment per message.",
+			"idempotency_key": schema.StringAttribute{
+				MarkdownDescription: "Optional opaque key that forces replacement when it changes. " +
+					"Use this with `lifecycle.ignore_changes` on message content attributes so that " +
+					"only intentional key updates re-send the notification (for example `release-${var.version}`). " +
+					"This value is stored in state only and is never sent to the Pushover API.",
 				Optional: true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
-			},
-			"attachment_type": schema.StringAttribute{
-				MarkdownDescription: "Optional MIME type for the attachment (e.g. `image/jpeg`, `image/png`). " +
-					"When omitted, the type is inferred from the file extension or the remote response `Content-Type` header.",
-				Optional: true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+				Validators: []validator.String{
+					stringvalidator.LengthBetween(1, 256),
 				},
 			},
 			"receipt": schema.StringAttribute{
