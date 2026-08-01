@@ -44,7 +44,7 @@ resource "pushover_message" "rich" {
   ttl       = 86400  # Auto-delete from Pushover servers after 24 h
 }
 
-# --- Example 3: Emergency message ---
+# --- Example 3: Emergency message + receipt lifecycle ---
 resource "pushover_message" "emergency" {
   user_key = var.pushover_user_key
   message  = "Production database is DOWN!"
@@ -55,11 +55,20 @@ resource "pushover_message" "emergency" {
   callback = "https://ops.example.com/webhook/ack"
 }
 
-# Output the emergency receipt so it can be polled later.
+# Track acknowledgement status; destroy cancels outstanding retries.
+resource "pushover_receipt" "emergency" {
+  receipt = pushover_message.emergency.receipt
+}
+
 output "emergency_receipt" {
   description = "Pushover receipt token for the emergency notification."
   value       = pushover_message.emergency.receipt
   sensitive   = false
+}
+
+output "emergency_acknowledged" {
+  description = "Whether the emergency notification has been acknowledged."
+  value       = pushover_receipt.emergency.acknowledged
 }
 
 # --- Example 4: Low-priority quiet notification ---

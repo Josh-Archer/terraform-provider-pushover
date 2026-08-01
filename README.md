@@ -7,6 +7,7 @@ The Pushover provider lets you send push notifications and manage delivery group
 ## Features
 
 - **Send notifications** (`pushover_message`) – Full Pushover message API including priority levels, sounds, HTML formatting, URL attachments, per-device targeting, TTL, and emergency messages with retry/expire/callback.
+- **Emergency receipt lifecycle** (`pushover_receipt`) – Track acknowledgement/expiry of priority-2 messages and cancel outstanding retries when the incident is resolved.
 - **Manage group membership** (`pushover_group_user`) – Add, remove, enable, or disable users in Pushover delivery groups.
 - **Update glance widgets** (`pushover_glances`) – Push short text or numeric data to smartwatch/lock-screen widgets via the Glances API.
 - **List available sounds** (`pushover_sounds`) – Query all notification sounds available to your application.
@@ -74,7 +75,7 @@ resource "pushover_message" "alert" {
 }
 ```
 
-**Emergency messages** (priority `2`) require `retry` and `expire`:
+**Emergency messages** (priority `2`) require `retry` and `expire`. Pair with `pushover_receipt` to track status and cancel retries when resolved:
 
 ```hcl
 resource "pushover_message" "outage" {
@@ -87,8 +88,13 @@ resource "pushover_message" "outage" {
   callback = "https://ops.example.com/ack"
 }
 
-output "outage_receipt" {
-  value = pushover_message.outage.receipt
+resource "pushover_receipt" "outage" {
+  receipt = pushover_message.outage.receipt
+  # destroy cancels outstanding emergency retries (default)
+}
+
+output "outage_acknowledged" {
+  value = pushover_receipt.outage.acknowledged
 }
 ```
 
@@ -112,8 +118,39 @@ output "outage_receipt" {
 | `retry`      | int    | ✅ if priority=2 | Re-send interval in seconds (≥ 30) |
 | `expire`     | int    | ✅ if priority=2 | Stop re-sending after this many seconds (1–10800) |
 | `callback`   | string | –        | URL to ping when emergency message is acknowledged |
-| `receipt`    | string | computed | Emergency receipt token |
+| `receipt`    | string | computed | Emergency receipt token (use with `pushover_receipt`) |
 | `request_id` | string | computed | Pushover API request ID |
+
+---
+
+### `pushover_receipt`
+
+Tracks an emergency message receipt and cancels outstanding retries when destroyed (incident resolved).
+
+```hcl
+resource "pushover_receipt" "outage" {
+  receipt           = pushover_message.outage.receipt
+  cancel_on_destroy = true # default
+}
+```
+
+#### Attributes
+
+| Attribute                | Type   | Required | Description |
+|--------------------------|--------|----------|-------------|
+| `receipt`                | string | ✅        | Emergency receipt from `pushover_message.receipt` |
+| `cancel_on_destroy`      | bool   | –        | Cancel retries on destroy (default: `true`) |
+| `acknowledged`           | bool   | computed | Whether any recipient acknowledged |
+| `acknowledged_at`        | int    | computed | Unix time of first acknowledgement |
+| `acknowledged_by`        | string | computed | Acknowledging user key |
+| `acknowledged_by_device` | string | computed | Acknowledging device |
+| `last_delivered_at`      | int    | computed | Last delivery attempt |
+| `expired`                | bool   | computed | Whether the retry window ended |
+| `expires_at`             | int    | computed | Expiry Unix timestamp |
+| `called_back`            | bool   | computed | Whether callback URL was invoked |
+| `called_back_at`         | int    | computed | Callback Unix timestamp |
+| `request_id`             | string | computed | Last receipts API request ID |
+| `id`                     | string | computed | Same as `receipt` |
 
 ---
 

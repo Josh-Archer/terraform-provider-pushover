@@ -52,9 +52,14 @@ resource "pushover_message" "outage" {
   callback = "https://ops.example.com/webhook/ack"
 }
 
-output "outage_receipt" {
-  description = "Use this receipt to poll or cancel the emergency notification."
-  value       = pushover_message.outage.receipt
+# Track acknowledgement and cancel retries when this resource is destroyed.
+resource "pushover_receipt" "outage" {
+  receipt = pushover_message.outage.receipt
+}
+
+output "outage_acknowledged" {
+  description = "Whether the emergency notification has been acknowledged."
+  value       = pushover_receipt.outage.acknowledged
 }
 ```
 
@@ -126,7 +131,7 @@ resource "pushover_message" "with_remote_image" {
 
 ### Read-Only
 
-- `receipt` (String) — For emergency messages: receipt token for polling acknowledgement status.
+- `receipt` (String) — For emergency messages: receipt token. Pass to `pushover_receipt` to track status and cancel on resolve.
 - `request_id` (String) — The unique request ID returned by the Pushover API.
 
 ## Import

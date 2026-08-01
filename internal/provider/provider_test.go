@@ -117,7 +117,7 @@ ExpectNonEmptyPlan: true,
 })
 }
 
-func TestProvider_HasGlancesResource(t *testing.T) {
+func TestProvider_HasReceiptResource(t *testing.T) {
 t.Parallel()
 resource.UnitTest(t, resource.TestCase{
 ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -126,9 +126,8 @@ Steps: []resource.TestStep{
 Config: `
 provider "pushover" { api_token = "tok" }
 
-resource "pushover_glances" "probe" {
-  user_key = "uABC"
-  text     = "status ok"
+resource "pushover_receipt" "probe" {
+  receipt = "rcpt_abcdefghijklmnopqrstuvwxyz012345"
 }`,
 PlanOnly:           true,
 ExpectNonEmptyPlan: true,
