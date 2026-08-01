@@ -148,30 +148,30 @@ Updates a [Pushover Glances](https://pushover.net/api/glances) widget (e.g. Appl
 
 ```hcl
 resource "pushover_glances" "sales" {
-  user_key = "uYourUserKey"
-  title    = "Widgets Sold"
-  text     = "42 today"
-  count    = 42
-  percent  = 42
+  user_key    = "uYourUserKey"
+  title       = "Widgets Sold"
+  text        = "42 today"
+  badge_count = 42
+  percent     = 42
 }
 ```
 
 #### Attributes
 
-| Attribute    | Type   | Required | Description |
-|--------------|--------|----------|-------------|
-| `user_key`   | string | ✅        | Pushover user key |
-| `title`      | string | –*       | Description of the data (≤ 100 chars) |
-| `text`       | string | –*       | Main line of data (≤ 100 chars) |
-| `subtext`    | string | –*       | Secondary line (≤ 100 chars) |
-| `count`      | int    | –*       | Integer count (may be negative) |
-| `percent`    | int    | –*       | Progress 0–100 |
-| `device`     | string | –        | Restrict to widget on this device |
-| `api_token`  | string | –        | Per-resource API token override |
-| `id`         | string | computed | `user_key` or `user_key/device` |
-| `request_id` | string | computed | Latest Glances API request ID |
+| Attribute     | Type   | Required | Description |
+|---------------|--------|----------|-------------|
+| `user_key`    | string | ✅        | Pushover user key |
+| `title`       | string | –*       | Description of the data (≤ 100 chars) |
+| `text`        | string | –*       | Main line of data (≤ 100 chars) |
+| `subtext`     | string | –*       | Secondary line (≤ 100 chars) |
+| `badge_count` | int    | –*       | Integer count (API field `count`; may be negative) |
+| `percent`     | int    | –*       | Progress 0–100 |
+| `device`      | string | –        | Restrict to widget on this device |
+| `api_token`   | string | –        | Per-resource API token override |
+| `id`          | string | computed | `user_key` or `user_key/device` |
+| `request_id`  | string | computed | Latest Glances API request ID |
 
-\* At least one of `title`, `text`, `subtext`, `count`, or `percent` is required.
+\* At least one of `title`, `text`, `subtext`, `badge_count`, or `percent` is required.
 
 ---
 

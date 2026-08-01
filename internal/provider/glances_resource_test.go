@@ -47,8 +47,8 @@ resource "pushover_glances" "full" {
   title    = "Widgets Sold"
   text     = "42 today"
   subtext  = "Goal: 100"
-  count    = 42
-  percent  = 42
+  badge_count = 42
+  percent     = 42
 }`,
 				PlanOnly:           true,
 				ExpectNonEmptyPlan: true,
@@ -57,7 +57,7 @@ resource "pushover_glances" "full" {
 	})
 }
 
-// TestGlancesResource_NegativeCount allows negative count values.
+// TestGlancesResource_NegativeCount allows negative badge_count values.
 func TestGlancesResource_NegativeCount(t *testing.T) {
 	t.Parallel()
 	resource.UnitTest(t, resource.TestCase{
@@ -68,8 +68,8 @@ func TestGlancesResource_NegativeCount(t *testing.T) {
 provider "pushover" { api_token = "fake" }
 
 resource "pushover_glances" "neg" {
-  user_key = "utest1234567890abcdefghijklmnopqr"
-  count    = -5
+  user_key    = "utest1234567890abcdefghijklmnopqr"
+  badge_count = -5
 }`,
 				PlanOnly:           true,
 				ExpectNonEmptyPlan: true,

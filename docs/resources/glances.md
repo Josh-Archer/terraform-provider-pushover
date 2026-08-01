@@ -11,7 +11,7 @@ Updates a [Pushover Glances](https://pushover.net/api/glances) widget — for ex
 
 Glance updates do **not** produce a push notification alert or sound. They store low-priority state on a constantly-updated screen. The API retains each field until it is overwritten or cleared (send an empty value).
 
-At least one of `title`, `text`, `subtext`, `count`, or `percent` must be set. When an attribute is removed from configuration on update, or when the resource is destroyed, that field is cleared on the widget.
+At least one of `title`, `text`, `subtext`, `badge_count`, or `percent` must be set. When an attribute is removed from configuration on update, or when the resource is destroyed, that field is cleared on the widget.
 
 > **Apple Watch note:** Throttle updates (Pushover recommends at least 20 minutes between calls). WatchOS may stop processing updates if you exceed roughly 50 updates per day.
 
@@ -30,13 +30,13 @@ resource "pushover_glances" "status" {
 
 ```terraform
 resource "pushover_glances" "sales" {
-  user_key = var.pushover_user_key
-  device   = "iphone"
-  title    = "Widgets Sold"
-  text     = "42 today"
-  subtext  = "Goal: 100"
-  count    = 42
-  percent  = 42
+  user_key    = var.pushover_user_key
+  device      = "iphone"
+  title       = "Widgets Sold"
+  text        = "42 today"
+  subtext     = "Goal: 100"
+  badge_count = 42
+  percent     = 42
 }
 ```
 
@@ -44,9 +44,9 @@ resource "pushover_glances" "sales" {
 
 ```terraform
 resource "pushover_glances" "open_tickets" {
-  user_key = var.pushover_user_key
-  title    = "Open Tickets"
-  count    = 7
+  user_key    = var.pushover_user_key
+  title       = "Open Tickets"
+  badge_count = 7
 }
 ```
 
@@ -59,7 +59,7 @@ resource "pushover_glances" "open_tickets" {
 ### Optional
 
 - `api_token` (String, Sensitive) — Override the provider-level API token for this resource.
-- `count` (Number) — Integer count shown on smaller screens. May be negative.
+- `badge_count` (Number) — Integer count shown on smaller screens (Pushover API field `count`). May be negative. Named `badge_count` because Terraform reserves root attribute name `count`.
 - `device` (String) — Restrict the update to the widget on this device name. **(Forces replacement)**
 - `percent` (Number) — Progress value from 0 through 100 (inclusive).
 - `subtext` (String) — Secondary line of data (≤ 100 characters).

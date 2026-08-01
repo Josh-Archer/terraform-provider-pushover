@@ -33,20 +33,20 @@ resource "pushover_glances" "garage" {
 
 # --- Example 2: Full sales counter widget ---
 resource "pushover_glances" "sales" {
-  user_key = var.pushover_user_key
-  title    = "Widgets Sold"
-  text     = "42 today"
-  subtext  = "Goal: 100"
-  count    = 42
-  percent  = 42
+  user_key    = var.pushover_user_key
+  title       = "Widgets Sold"
+  text        = "42 today"
+  subtext     = "Goal: 100"
+  badge_count = 42
+  percent     = 42
 }
 
 # --- Example 3: Device-targeted count complication ---
 resource "pushover_glances" "tickets" {
-  user_key = var.pushover_user_key
-  device   = "iphone"
-  title    = "Open Tickets"
-  count    = 7
+  user_key    = var.pushover_user_key
+  device      = "iphone"
+  title       = "Open Tickets"
+  badge_count = 7
 }
 
 output "sales_request_id" {

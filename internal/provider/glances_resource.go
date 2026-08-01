@@ -42,11 +42,11 @@ type GlancesResourceModel struct {
 	Device   types.String `tfsdk:"device"`
 
 	// Glance data fields (at least one required)
-	Title   types.String `tfsdk:"title"`
-	Text    types.String `tfsdk:"text"`
-	Subtext types.String `tfsdk:"subtext"`
-	Count   types.Int64  `tfsdk:"count"`
-	Percent types.Int64  `tfsdk:"percent"`
+	Title      types.String `tfsdk:"title"`
+	Text       types.String `tfsdk:"text"`
+	Subtext    types.String `tfsdk:"subtext"`
+	BadgeCount types.Int64  `tfsdk:"badge_count"` // maps to API "count" (reserved TF root name)
+	Percent    types.Int64  `tfsdk:"percent"`
 
 	// Computed
 	ID        types.String `tfsdk:"id"`
@@ -65,7 +65,7 @@ func (r *GlancesResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"The Glances API stores the current value of each field and only overwrites fields you send. " +
 			"Unset attributes are left unchanged on create; when an attribute is removed from configuration " +
 			"on update (or the resource is destroyed), that field is cleared on the widget.\n\n" +
-			"At least one of `title`, `text`, `subtext`, `count`, or `percent` must be set. " +
+			"At least one of `title`, `text`, `subtext`, `badge_count`, or `percent` must be set. " +
 			"Throttle updates to Apple Watch widgets (Pushover recommends ≥ 20 minutes between calls).",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -116,9 +116,12 @@ func (r *GlancesResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 					stringvalidator.LengthAtMost(100),
 				},
 			},
-			"count": schema.Int64Attribute{
-				MarkdownDescription: "Integer count shown on smaller screens. May be negative.",
-				Optional:            true,
+			// Named badge_count because "count" is a reserved Terraform root attribute name.
+			// Sent to the Pushover API as the "count" form field.
+			"badge_count": schema.Int64Attribute{
+				MarkdownDescription: "Integer count shown on smaller screens (Pushover API field `count`). May be negative. " +
+					"Named `badge_count` because Terraform reserves root attribute name `count`.",
+				Optional: true,
 			},
 			"percent": schema.Int64Attribute{
 				MarkdownDescription: "Progress value from 0 through 100 (inclusive), shown as a bar/circle on some screens.",
@@ -160,7 +163,7 @@ func (r *GlancesResource) Create(ctx context.Context, req resource.CreateRequest
 	if !hasGlanceDataField(data) {
 		resp.Diagnostics.AddError(
 			"Missing Glance Data",
-			"At least one of title, text, subtext, count, or percent must be set.",
+			"At least one of title, text, subtext, badge_count, or percent must be set.",
 		)
 		return
 	}
@@ -193,7 +196,7 @@ func (r *GlancesResource) Update(ctx context.Context, req resource.UpdateRequest
 	if !hasGlanceDataField(plan) {
 		resp.Diagnostics.AddError(
 			"Missing Glance Data",
-			"At least one of title, text, subtext, count, or percent must be set.",
+			"At least one of title, text, subtext, badge_count, or percent must be set.",
 		)
 		return
 	}
@@ -240,7 +243,7 @@ func (r *GlancesResource) Delete(ctx context.Context, req resource.DeleteRequest
 	if !state.Subtext.IsNull() {
 		clearReq.DataFields["subtext"] = ""
 	}
-	if !state.Count.IsNull() {
+	if !state.BadgeCount.IsNull() {
 		clearReq.DataFields["count"] = ""
 	}
 	if !state.Percent.IsNull() {
@@ -261,7 +264,7 @@ func hasGlanceDataField(data GlancesResourceModel) bool {
 	return !data.Title.IsNull() ||
 		!data.Text.IsNull() ||
 		!data.Subtext.IsNull() ||
-		!data.Count.IsNull() ||
+		!data.BadgeCount.IsNull() ||
 		!data.Percent.IsNull()
 }
 
@@ -302,13 +305,13 @@ func buildGlanceRequest(plan GlancesResourceModel, prior *GlancesResourceModel) 
 	priorTitle := prior != nil && !prior.Title.IsNull()
 	priorText := prior != nil && !prior.Text.IsNull()
 	priorSubtext := prior != nil && !prior.Subtext.IsNull()
-	priorCount := prior != nil && !prior.Count.IsNull()
+	priorBadgeCount := prior != nil && !prior.BadgeCount.IsNull()
 	priorPercent := prior != nil && !prior.Percent.IsNull()
 
 	setOrClearString("title", plan.Title, priorTitle)
 	setOrClearString("text", plan.Text, priorText)
 	setOrClearString("subtext", plan.Subtext, priorSubtext)
-	setOrClearInt("count", plan.Count, priorCount)
+	setOrClearInt("count", plan.BadgeCount, priorBadgeCount) // API field name remains "count"
 	setOrClearInt("percent", plan.Percent, priorPercent)
 
 	return req
