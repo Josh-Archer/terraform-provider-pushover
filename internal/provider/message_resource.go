@@ -51,6 +51,10 @@ type MessageResourceModel struct {
 	Monospace types.Bool   `tfsdk:"monospace"`
 	TTL       types.Int64  `tfsdk:"ttl"`
 
+	// Attachment fields
+	Attachment     types.String `tfsdk:"attachment"`
+	AttachmentType types.String `tfsdk:"attachment_type"`
+
 	// Emergency priority (priority=2) fields
 	Retry    types.Int64  `tfsdk:"retry"`
 	Expire   types.Int64  `tfsdk:"expire"`
@@ -195,6 +199,25 @@ func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
+			"attachment": schema.StringAttribute{
+				MarkdownDescription: "Local filesystem path or remote `http(s)` URL of an image to attach to the message. " +
+					"Remote URLs are downloaded by the provider and uploaded to Pushover (the API does not fetch URLs itself). " +
+					"Maximum size: **5,242,880 bytes (5 MiB)**. " +
+					"Supported image types include JPEG, PNG, GIF, and other formats accepted by the Pushover clients. " +
+					"One attachment per message.",
+				Optional: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"attachment_type": schema.StringAttribute{
+				MarkdownDescription: "Optional MIME type for the attachment (e.g. `image/jpeg`, `image/png`). " +
+					"When omitted, the type is inferred from the file extension or the remote response `Content-Type` header.",
+				Optional: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
 			"receipt": schema.StringAttribute{
 				MarkdownDescription: "Receipt token returned for emergency (`priority = 2`) messages. Use `pushover_receipt` data source to poll delivery status.",
 				Computed:            true,
@@ -285,6 +308,19 @@ func (r *MessageResource) Create(ctx context.Context, req resource.CreateRequest
 		if !data.Callback.IsNull() {
 			msgReq.Callback = data.Callback.ValueString()
 		}
+	}
+	if !data.Attachment.IsNull() && !data.Attachment.IsUnknown() {
+		msgReq.Attachment = data.Attachment.ValueString()
+	}
+	if !data.AttachmentType.IsNull() && !data.AttachmentType.IsUnknown() {
+		msgReq.AttachmentType = data.AttachmentType.ValueString()
+	}
+	if msgReq.AttachmentType != "" && msgReq.Attachment == "" {
+		resp.Diagnostics.AddError(
+			"Invalid Attachment Configuration",
+			"attachment_type requires attachment to be set.",
+		)
+		return
 	}
 
 	result, err := r.client.SendMessage(ctx, msgReq)

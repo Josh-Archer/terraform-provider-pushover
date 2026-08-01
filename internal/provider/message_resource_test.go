@@ -260,3 +260,48 @@ ExpectError: regexp.MustCompile(`(?i)(length|characters)`),
 },
 })
 }
+
+// TestMessageResource_AttachmentFieldsAccepted ensures attachment attributes are in the schema.
+func TestMessageResource_AttachmentFieldsAccepted(t *testing.T) {
+t.Parallel()
+resource.UnitTest(t, resource.TestCase{
+ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+Steps: []resource.TestStep{
+{
+Config: `
+provider "pushover" { api_token = "fake" }
+
+resource "pushover_message" "with_attach" {
+  user_key        = "utest1234567890abcdefghijklmnopqr"
+  message         = "see image"
+  attachment      = "/tmp/screenshot.png"
+  attachment_type = "image/png"
+}`,
+PlanOnly:           true,
+ExpectNonEmptyPlan: true,
+},
+},
+})
+}
+
+// TestMessageResource_RemoteAttachmentURLAccepted ensures http(s) attachment URLs are accepted.
+func TestMessageResource_RemoteAttachmentURLAccepted(t *testing.T) {
+t.Parallel()
+resource.UnitTest(t, resource.TestCase{
+ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+Steps: []resource.TestStep{
+{
+Config: `
+provider "pushover" { api_token = "fake" }
+
+resource "pushover_message" "with_url_attach" {
+  user_key   = "utest1234567890abcdefghijklmnopqr"
+  message    = "remote image"
+  attachment = "https://example.com/status/graph.png"
+}`,
+PlanOnly:           true,
+ExpectNonEmptyPlan: true,
+},
+},
+})
+}

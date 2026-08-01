@@ -4,10 +4,14 @@
 package pushover_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -200,6 +204,217 @@ func TestSendMessage_TokenOverride(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// ----- SendMessage with attachments -----
+
+func TestSendMessage_LocalAttachment(t *testing.T) {
+	// Minimal valid-looking JPEG header bytes (content is irrelevant for the client).
+	imageBytes := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46}
+	tmp, err := os.CreateTemp("", "pushover-attach-*.jpg")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(imageBytes); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		ct := r.Header.Get("Content-Type")
+		if !strings.HasPrefix(ct, "multipart/form-data") {
+			t.Errorf("expected multipart/form-data Content-Type, got %q", ct)
+		}
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Fatalf("ParseMultipartForm: %v", err)
+		}
+		if r.FormValue("token") != "test_token" {
+			t.Errorf("unexpected token: %s", r.FormValue("token"))
+		}
+		if r.FormValue("user") != "test_user" {
+			t.Errorf("unexpected user: %s", r.FormValue("user"))
+		}
+		if r.FormValue("message") != "with image" {
+			t.Errorf("unexpected message: %s", r.FormValue("message"))
+		}
+		file, header, err := r.FormFile("attachment")
+		if err != nil {
+			t.Fatalf("FormFile attachment: %v", err)
+		}
+		defer file.Close()
+		got, err := io.ReadAll(file)
+		if err != nil {
+			t.Fatalf("ReadAll attachment: %v", err)
+		}
+		if !bytes.Equal(got, imageBytes) {
+			t.Errorf("attachment bytes mismatch: got %v, want %v", got, imageBytes)
+		}
+		if header.Header.Get("Content-Type") != "image/jpeg" {
+			t.Errorf("unexpected attachment Content-Type: %s", header.Header.Get("Content-Type"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("test_token", srv.URL, srv.Client())
+	resp, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:       "test_user",
+		Message:    "with image",
+		Attachment: tmp.Name(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Request != "test-request-id" {
+		t.Errorf("expected request id 'test-request-id', got %s", resp.Request)
+	}
+}
+
+func TestSendMessage_RemoteAttachmentURL(t *testing.T) {
+	imageBytes := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A} // PNG signature
+
+	// File server that serves the image.
+	fileSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(imageBytes)
+	}))
+	defer fileSrv.Close()
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Fatalf("ParseMultipartForm: %v", err)
+		}
+		file, header, err := r.FormFile("attachment")
+		if err != nil {
+			t.Fatalf("FormFile attachment: %v", err)
+		}
+		defer file.Close()
+		got, err := io.ReadAll(file)
+		if err != nil {
+			t.Fatalf("ReadAll: %v", err)
+		}
+		if !bytes.Equal(got, imageBytes) {
+			t.Errorf("attachment bytes mismatch")
+		}
+		if header.Header.Get("Content-Type") != "image/png" {
+			t.Errorf("unexpected Content-Type: %s", header.Header.Get("Content-Type"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer apiSrv.Close()
+
+	client := pushover.NewClientWithBase("tok", apiSrv.URL, apiSrv.Client())
+	_, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:       "u",
+		Message:    "remote image",
+		Attachment: fileSrv.URL + "/graph.png",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSendMessage_AttachmentTypeOverride(t *testing.T) {
+	imageBytes := []byte{0x00, 0x01, 0x02, 0x03}
+	tmp, err := os.CreateTemp("", "pushover-attach-*.bin")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(imageBytes); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	_ = tmp.Close()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Fatalf("ParseMultipartForm: %v", err)
+		}
+		_, header, err := r.FormFile("attachment")
+		if err != nil {
+			t.Fatalf("FormFile: %v", err)
+		}
+		if header.Header.Get("Content-Type") != "image/gif" {
+			t.Errorf("expected image/gif, got %s", header.Header.Get("Content-Type"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("tok", srv.URL, srv.Client())
+	_, err = client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:           "u",
+		Message:        "typed",
+		Attachment:     tmp.Name(),
+		AttachmentType: "image/gif",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSendMessage_AttachmentTooLarge(t *testing.T) {
+	// Create a file just over the 5 MiB limit without holding all of it in memory first.
+	tmp, err := os.CreateTemp("", "pushover-large-*.jpg")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer os.Remove(tmp.Name())
+	// Truncate to MaxAttachmentBytes+1.
+	if err := tmp.Truncate(int64(pushover.MaxAttachmentBytes) + 1); err != nil {
+		t.Fatalf("Truncate: %v", err)
+	}
+	_ = tmp.Close()
+
+	// API server should never be called.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("API should not be called for oversize attachment")
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("tok", srv.URL, srv.Client())
+	_, err = client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:       "u",
+		Message:    "too big",
+		Attachment: tmp.Name(),
+	})
+	if err == nil {
+		t.Fatal("expected error for oversize attachment")
+	}
+	if !strings.Contains(err.Error(), "exceeds Pushover limit") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestSendMessage_AttachmentMissingFile(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("API should not be called for missing attachment")
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("tok", srv.URL, srv.Client())
+	_, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:       "u",
+		Message:    "missing",
+		Attachment: filepath.Join(os.TempDir(), "definitely-does-not-exist-pushover-xyz.jpg"),
+	})
+	if err == nil {
+		t.Fatal("expected error for missing attachment file")
 	}
 }
 
