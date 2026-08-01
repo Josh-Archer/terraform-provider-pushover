@@ -11,6 +11,19 @@ Adds a Pushover user to a delivery group. The group must already exist (create i
 
 Changing `group_key`, `user_key`, or `device` forces a new resource. Changing `memo` or `disabled` is updated in-place.
 
+## Drift and refresh behavior
+
+On every plan/refresh, Terraform re-reads the group's membership list from the Pushover API and reconciles state:
+
+| External change | Refresh result | Next apply |
+| --- | --- | --- |
+| User removed from the group outside Terraform | Resource is **removed from state** (destroyed in Terraform terms) | Membership is **recreated** if still in configuration |
+| Group deleted / no longer readable as a group | Resource is **removed from state** | Membership is **recreated** (requires the group to exist again) |
+| `disabled` toggled outside Terraform | State `disabled` is updated to the remote value | Plan shows a change back to the configured value (if different) |
+| `memo` changed outside Terraform | State `memo` is updated to the remote value | Plan shows a change back to the configured value (if different) |
+
+Membership matching is exact on `user_key` and `device`: a device-scoped member is distinct from the same user without a device restriction.
+
 ## Example Usage
 
 ### Basic membership
@@ -85,9 +98,14 @@ resource "pushover_group_user" "engineer" {
 
 ## Import
 
-Group user resources can be imported using the format `group_key/user_key` or `group_key/user_key/device`:
+Existing group memberships can be imported using `group_key/user_key` or `group_key/user_key/device`:
 
 ```shell
+# Membership for all of a user's devices (no device restriction)
 terraform import pushover_group_user.ops_on_call gYourGroupKey/uYourUserKey
+
+# Device-scoped membership
 terraform import pushover_group_user.mobile_only gYourGroupKey/uYourUserKey/iphone
 ```
+
+After import, run `terraform plan` (or refresh) so the provider can read the remote `disabled` and `memo` values. If the imported user is not currently a member of the group, refresh removes the resource from state and the next plan will propose creating the membership again.
