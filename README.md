@@ -8,6 +8,7 @@ The Pushover provider lets you send push notifications and manage delivery group
 
 - **Send notifications** (`pushover_message`) – Full Pushover message API including priority levels, sounds, HTML formatting, URL attachments, per-device targeting, TTL, and emergency messages with retry/expire/callback.
 - **Manage group membership** (`pushover_group_user`) – Add, remove, enable, or disable users in Pushover delivery groups.
+- **Update glance widgets** (`pushover_glances`) – Push short text or numeric data to smartwatch/lock-screen widgets via the Glances API.
 - **List available sounds** (`pushover_sounds`) – Query all notification sounds available to your application.
 - **Validate recipients** (`pushover_validate_user`) – Verify a user or group key and enumerate its registered devices.
 - **Resilient HTTP client** – Bounded retries with exponential backoff on transient HTTP 5xx/429 responses; honors `Retry-After` when present.
@@ -138,6 +139,39 @@ resource "pushover_group_user" "ops_team" {
 | `memo`      | string | –        | Note about this member |
 | `disabled`  | bool   | –        | Disable notifications without removing (default: `false`) |
 | `id`        | string | computed | `group_key/user_key[/device]` |
+
+---
+
+### `pushover_glances`
+
+Updates a [Pushover Glances](https://pushover.net/api/glances) widget (e.g. Apple Watch complication) with short text or numeric data. This does not send a push notification.
+
+```hcl
+resource "pushover_glances" "sales" {
+  user_key    = "uYourUserKey"
+  title       = "Widgets Sold"
+  text        = "42 today"
+  badge_count = 42
+  percent     = 42
+}
+```
+
+#### Attributes
+
+| Attribute     | Type   | Required | Description |
+|---------------|--------|----------|-------------|
+| `user_key`    | string | ✅        | Pushover user key |
+| `title`       | string | –*       | Description of the data (≤ 100 chars) |
+| `text`        | string | –*       | Main line of data (≤ 100 chars) |
+| `subtext`     | string | –*       | Secondary line (≤ 100 chars) |
+| `badge_count` | int    | –*       | Integer count (API field `count`; may be negative) |
+| `percent`     | int    | –*       | Progress 0–100 |
+| `device`      | string | –        | Restrict to widget on this device |
+| `api_token`   | string | –        | Per-resource API token override |
+| `id`          | string | computed | `user_key` or `user_key/device` |
+| `request_id`  | string | computed | Latest Glances API request ID |
+
+\* At least one of `title`, `text`, `subtext`, `badge_count`, or `percent` is required.
 
 ---
 

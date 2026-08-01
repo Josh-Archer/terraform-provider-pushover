@@ -1,7 +1,7 @@
 ---
 page_title: "Pushover Provider"
 description: |-
-  Use the Pushover provider to send push notifications and manage delivery groups via the Pushover API.
+  Use the Pushover provider to send push notifications, update glance widgets, and manage delivery groups via the Pushover API.
 ---
 
 # Pushover Provider
@@ -57,6 +57,7 @@ Non-retryable client errors (for example HTTP 4xx validation failures) fail imme
 
 - [pushover_message](resources/message.md) — Send a push notification.
 - [pushover_group_user](resources/group_user.md) — Add a user to a Pushover delivery group.
+- [pushover_glances](resources/glances.md) — Update a smartwatch/lock-screen glance widget.
 
 ## Data Sources
 
