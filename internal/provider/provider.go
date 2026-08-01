@@ -5,6 +5,7 @@ package provider
 
 import (
 	"context"
+	"net/http"
 	"os"
 
 	"github.com/Josh-Archer/terraform-provider-pushover/internal/pushover"
@@ -77,6 +78,15 @@ func (p *PushoverProvider) Configure(ctx context.Context, req provider.Configure
 			"The provider requires a Pushover application API token. "+
 				"Set the api_token attribute or the PUSHOVER_API_TOKEN environment variable.",
 		)
+		return
+	}
+
+	// PUSHOVER_API_BASE_URL is an undocumented test seam for pointing the client
+	// at a mock HTTP server (acceptance / plan-churn unit tests).
+	if baseURL := os.Getenv("PUSHOVER_API_BASE_URL"); baseURL != "" {
+		client := pushover.NewClientWithBase(apiToken, baseURL, &http.Client{})
+		resp.DataSourceData = client
+		resp.ResourceData = client
 		return
 	}
 

@@ -60,7 +60,7 @@ resource "pushover_message" "deploy_notification" {
 
 ### `pushover_message`
 
-Sends a Pushover notification when created. All attributes trigger replacement when changed (the message is re-sent). Use `lifecycle.replace_triggered_by` or `terraform taint` to resend without changing attributes.
+Sends a Pushover notification when created. **Every configuration attribute forces replacement** (the message is re-sent). Protect against accidental re-sends from plan churn with the lifecycle patterns below (see also [`examples/resources/message_oneshot`](examples/resources/message_oneshot)).
 
 ```hcl
 resource "pushover_message" "alert" {
@@ -98,28 +98,57 @@ output "outage_acknowledged" {
 }
 ```
 
+#### Avoiding accidental re-sends
+
+| Pattern | When to use |
+|---------|-------------|
+| `lifecycle { ignore_changes = all }` | True one-shot: send once, never again on plan churn |
+| `idempotency_key` + `ignore_changes` on content | Re-send only when you rotate an intentional key (e.g. release version) |
+| `lifecycle.replace_triggered_by` | Re-send only when another resource/value changes |
+| `terraform apply -replace=…` | Manual one-off re-send |
+
+```hcl
+# One-shot: never re-send after the first apply
+resource "pushover_message" "bootstrap" {
+  user_key = var.pushover_user_key
+  message  = "Bootstrap finished"
+  lifecycle { ignore_changes = all }
+}
+
+# Version-gated: re-send only when app_version changes
+resource "pushover_message" "release" {
+  user_key        = var.pushover_user_key
+  message         = "Release ${var.app_version} is live"
+  idempotency_key = var.app_version
+  lifecycle {
+    ignore_changes = [message, title, priority, sound, device, url, url_title, html, monospace, ttl, timestamp, retry, expire, callback, api_token, user_key]
+  }
+}
+```
+
 #### Attributes
 
-| Attribute    | Type   | Required | Description |
-|--------------|--------|----------|-------------|
-| `user_key`   | string | ✅        | Pushover user or group key |
-| `message`    | string | ✅        | Message body (1–1024 chars; HTML supported) |
-| `api_token`  | string | –        | Per-message API token override |
-| `title`      | string | –        | Message title (≤ 250 chars) |
-| `url`        | string | –        | Supplementary URL (≤ 512 chars) |
-| `url_title`  | string | –        | URL label (≤ 100 chars) |
-| `priority`   | int    | –        | `-2` lowest · `-1` low · `0` normal · `1` high · `2` emergency |
-| `sound`      | string | –        | Notification sound key |
-| `device`     | string | –        | Deliver only to this device |
-| `timestamp`  | int    | –        | Override message timestamp (Unix) |
-| `html`       | bool   | –        | Enable HTML in message body |
-| `monospace`  | bool   | –        | Display in monospace font |
-| `ttl`        | int    | –        | Seconds before Pushover deletes the message (≥ 1) |
-| `retry`      | int    | ✅ if priority=2 | Re-send interval in seconds (≥ 30) |
-| `expire`     | int    | ✅ if priority=2 | Stop re-sending after this many seconds (1–10800) |
-| `callback`   | string | –        | URL to ping when emergency message is acknowledged |
-| `receipt`    | string | computed | Emergency receipt token (use with `pushover_receipt`) |
-| `request_id` | string | computed | Pushover API request ID |
+| Attribute         | Type   | Required | Description |
+|-------------------|--------|----------|-------------|
+| `user_key`        | string | ✅        | Pushover user or group key |
+| `message`         | string | ✅        | Message body (1–1024 chars; HTML supported) |
+| `api_token`       | string | –        | Per-message API token override |
+| `title`           | string | –        | Message title (≤ 250 chars) |
+| `url`             | string | –        | Supplementary URL (≤ 512 chars) |
+| `url_title`       | string | –        | URL label (≤ 100 chars) |
+| `priority`        | int    | –        | `-2` lowest · `-1` low · `0` normal · `1` high · `2` emergency |
+| `sound`           | string | –        | Notification sound key |
+| `device`          | string | –        | Deliver only to this device |
+| `timestamp`       | int    | –        | Override message timestamp (Unix) |
+| `html`            | bool   | –        | Enable HTML in message body |
+| `monospace`       | bool   | –        | Display in monospace font |
+| `ttl`             | int    | –        | Seconds before Pushover deletes the message (≥ 1) |
+| `retry`           | int    | ✅ if priority=2 | Re-send interval in seconds (≥ 30) |
+| `expire`          | int    | ✅ if priority=2 | Stop re-sending after this many seconds (1–10800) |
+| `callback`        | string | –        | URL to ping when emergency message is acknowledged |
+| `idempotency_key` | string | –        | Opaque key; change forces replace. Not sent to API. Use with `ignore_changes` |
+| `receipt`         | string | computed | Emergency receipt token |
+| `request_id`      | string | computed | Pushover API request ID |
 
 ---
 
