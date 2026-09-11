@@ -24,6 +24,13 @@ import (
 
 const defaultBaseURL = "https://api.pushover.net/1"
 
+// Default retry policy for transient HTTP failures (5xx and 429).
+const (
+	defaultMaxRetries = 3
+	defaultBaseDelay  = 500 * time.Millisecond
+	defaultMaxDelay   = 8 * time.Second
+)
+
 // MaxAttachmentBytes is the Pushover API attachment size limit (5 MiB).
 const MaxAttachmentBytes = 5_242_880
 

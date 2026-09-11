@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Josh-Archer/terraform-provider-pushover/internal/pushover"
 )
