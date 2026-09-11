@@ -515,9 +515,17 @@ func (c *Client) doPostMultipart(ctx context.Context, path, contentType string, 
 	return nil
 }
 
-// GetReceipt retrieves delivery status for an emergency message receipt.
+// GetReceipt retrieves delivery status for an emergency message receipt using the client's token.
 func (c *Client) GetReceipt(ctx context.Context, receipt string) (*ReceiptResponse, error) {
-	path := fmt.Sprintf("/receipts/%s.json?token=%s", receipt, url.QueryEscape(c.token))
+	return c.GetReceiptWithToken(ctx, receipt, "")
+}
+
+// GetReceiptWithToken retrieves delivery status using an optional token override.
+func (c *Client) GetReceiptWithToken(ctx context.Context, receipt, token string) (*ReceiptResponse, error) {
+	if token == "" {
+		token = c.token
+	}
+	path := fmt.Sprintf("/receipts/%s.json?token=%s", url.PathEscape(receipt), url.QueryEscape(token))
 	var resp ReceiptResponse
 	if err := c.doGet(ctx, path, &resp); err != nil {
 		return nil, err
@@ -525,12 +533,20 @@ func (c *Client) GetReceipt(ctx context.Context, receipt string) (*ReceiptRespon
 	return &resp, nil
 }
 
-// CancelReceipt cancels an outstanding emergency notification.
+// CancelReceipt cancels an outstanding emergency notification using the client's token.
 func (c *Client) CancelReceipt(ctx context.Context, receipt string) (*APIResponse, error) {
+	return c.CancelReceiptWithToken(ctx, receipt, "")
+}
+
+// CancelReceiptWithToken cancels an outstanding emergency notification using an optional token override.
+func (c *Client) CancelReceiptWithToken(ctx context.Context, receipt, token string) (*APIResponse, error) {
+	if token == "" {
+		token = c.token
+	}
 	params := url.Values{}
-	params.Set("token", c.token)
+	params.Set("token", token)
 	var resp APIResponse
-	if err := c.doPost(ctx, fmt.Sprintf("/receipts/%s/cancel.json", receipt), params, &resp); err != nil {
+	if err := c.doPost(ctx, fmt.Sprintf("/receipts/%s/cancel.json", url.PathEscape(receipt)), params, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

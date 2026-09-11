@@ -241,3 +241,24 @@ func TestReceiptResource_AcknowledgedStatusWithMockClient(t *testing.T) {
 	}
 	// Resource Delete skips cancel when already acknowledged.
 }
+
+// TestReceiptResource_WithAPITokenOverride validates schema accepts api_token.
+func TestReceiptResource_WithAPITokenOverride(t *testing.T) {
+	t.Parallel()
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+provider "pushover" { api_token = "default_token" }
+
+resource "pushover_receipt" "token_override" {
+  receipt   = "rcpt_abcdefghijklmnopqrstuvwxyz012345"
+  api_token = "custom_override_token"
+}`,
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
+}
