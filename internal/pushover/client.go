@@ -598,9 +598,7 @@ func (c *Client) AddGroupUser(ctx context.Context, groupKey, user, device, memo 
 	if device != "" {
 		params.Set("device", device)
 	}
-	if memo != "" {
-		params.Set("memo", memo)
-	}
+	params.Set("memo", memo)
 	var resp APIResponse
 	if err := c.doPost(ctx, fmt.Sprintf("/groups/%s/add_user.json", groupKey), params, &resp); err != nil {
 		return nil, err

@@ -197,26 +197,40 @@ func (r *GroupUserResource) Update(ctx context.Context, req resource.UpdateReque
 	userKey := data.UserKey.ValueString()
 	device := data.Device.ValueString()
 
-	// Handle memo update by re-adding
-	if data.Memo != state.Memo {
+	memoChanged := !data.Memo.Equal(state.Memo)
+	disabledChanged := !data.Disabled.Equal(state.Disabled)
+
+	// Handle memo update by re-adding (note: Pushover API re-enables members upon add_user)
+	if memoChanged {
 		if _, err := r.client.AddGroupUser(ctx, groupKey, userKey, device, data.Memo.ValueString()); err != nil {
 			resp.Diagnostics.AddError("Failed to update group user memo", err.Error())
 			return
 		}
 	}
 
-	// Handle enable/disable toggle
-	if data.Disabled != state.Disabled {
+	// Handle enable/disable state
+	if disabledChanged {
 		if data.Disabled.ValueBool() {
 			if _, err := r.client.DisableGroupUser(ctx, groupKey, userKey, device); err != nil {
 				resp.Diagnostics.AddError("Failed to disable group user", err.Error())
 				return
 			}
 		} else {
-			if _, err := r.client.EnableGroupUser(ctx, groupKey, userKey, device); err != nil {
-				resp.Diagnostics.AddError("Failed to enable group user", err.Error())
-				return
+			// If memoChanged called AddGroupUser, Pushover already re-enabled the user.
+			// Only call EnableGroupUser if AddGroupUser was not already called.
+			if !memoChanged {
+				if _, err := r.client.EnableGroupUser(ctx, groupKey, userKey, device); err != nil {
+					resp.Diagnostics.AddError("Failed to enable group user", err.Error())
+					return
+				}
 			}
+		}
+	} else if memoChanged && data.Disabled.ValueBool() {
+		// Calling AddGroupUser automatically re-enables the user on Pushover's side.
+		// Since the user is configured to remain disabled, re-disable them.
+		if _, err := r.client.DisableGroupUser(ctx, groupKey, userKey, device); err != nil {
+			resp.Diagnostics.AddError("Failed to re-disable group user after memo update", err.Error())
+			return
 		}
 	}
 
@@ -346,5 +360,7 @@ func isGroupMembershipNotFoundError(err error) bool {
 	return strings.Contains(msg, "not in group") ||
 		strings.Contains(msg, "not a member") ||
 		strings.Contains(msg, "user not found") ||
-		strings.Contains(msg, "not found")
+		strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "invalid group") ||
+		strings.Contains(msg, "no such group")
 }
