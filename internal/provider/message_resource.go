@@ -194,6 +194,20 @@ func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 					int64planmodifier.RequiresReplace(),
 				},
 			},
+			"attachment": schema.StringAttribute{
+				MarkdownDescription: "Local filesystem path or remote `http(s)` URL of an image to attach. Remote URLs are downloaded by the provider and uploaded to Pushover. Max 5,242,880 bytes (5 MiB). Forces replacement.",
+				Optional:            true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"attachment_type": schema.StringAttribute{
+				MarkdownDescription: "Optional MIME type for the attachment (e.g. `image/jpeg`). Inferred from the file extension or response `Content-Type` when omitted. Requires `attachment`. Forces replacement.",
+				Optional:            true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
 			"retry": schema.Int64Attribute{
 				MarkdownDescription: "How often (in seconds) to re-send an emergency message until acknowledged. Required when `priority` is `2`. Minimum: 30. Forces replacement.",
 				Optional:            true,
