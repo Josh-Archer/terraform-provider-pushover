@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Josh-Archer/terraform-provider-pushover/internal/pushover"
 )
@@ -414,6 +415,84 @@ func TestSendMessage_AttachmentMissingFile(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for missing attachment file")
+	}
+}
+
+func TestSendMessage_AttachmentRetrySuccess(t *testing.T) {
+	tmp, err := os.CreateTemp("", "pushover-retry-*.jpg")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer os.Remove(tmp.Name())
+	_, _ = tmp.Write([]byte{0xFF, 0xD8, 0xFF, 0xE0})
+	_ = tmp.Close()
+
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"status":0,"errors":["server error"]}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("tok", srv.URL, srv.Client())
+	client.SetRetryPolicy(2, 1, 2)
+	client.SetSleepForTest(func(_ context.Context, _ time.Duration) error { return nil })
+
+	resp, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:       "u",
+		Message:    "retry test",
+		Attachment: tmp.Name(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if attempts != 2 {
+		t.Errorf("expected 2 attempts, got %d", attempts)
+	}
+	if resp.Request != "test-request-id" {
+		t.Errorf("expected request id 'test-request-id', got %s", resp.Request)
+	}
+}
+
+func TestSendMessage_AttachmentNonJSONError(t *testing.T) {
+	tmp, err := os.CreateTemp("", "pushover-err-*.jpg")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer os.Remove(tmp.Name())
+	_, _ = tmp.Write([]byte{0xFF, 0xD8, 0xFF, 0xE0})
+	_ = tmp.Close()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`<html><body>403 Forbidden</body></html>`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("tok", srv.URL, srv.Client())
+	client.SetRetryPolicy(0, 0, 0)
+
+	_, err = client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:       "u",
+		Message:    "error test",
+		Attachment: tmp.Name(),
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "HTTP 403") {
+		t.Errorf("expected error to mention HTTP 403, got %v", err)
+	}
+	if strings.Contains(err.Error(), "invalid character '<'") {
+		t.Errorf("error leaked JSON parsing failure instead of HTTP status: %v", err)
 	}
 }
 

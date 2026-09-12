@@ -469,50 +469,59 @@ func (c *Client) sendMessageWithAttachment(ctx context.Context, req *MessageRequ
 	}
 
 	var resp MessageResponse
-	if err := c.doPostMultipart(ctx, "/messages.json", w.FormDataContentType(), &body, &resp); err != nil {
+	if err := c.doPostMultipart(ctx, "/messages.json", w.FormDataContentType(), body.Bytes(), &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
 func escapeQuotes(s string) string {
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, "\n", "")
 	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)
 }
 
-func (c *Client) doPostMultipart(ctx context.Context, path, contentType string, body io.Reader, out interface{}) error {
-	u := c.baseURL + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, body)
-	if err != nil {
-		return fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", contentType)
+func (c *Client) doPostMultipart(ctx context.Context, path, contentType string, body []byte, out interface{}) error {
+	maxRetries := c.maxRetriesOrDefault()
+	var nextDelay time.Duration
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("sending request: %w", err)
-	}
-	defer resp.Body.Close()
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			if err := c.wait(ctx, nextDelay); err != nil {
+				return err
+			}
+		}
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("reading response: %w", err)
+		u := c.baseURL + path
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
+		if err != nil {
+			return fmt.Errorf("creating request: %w", err)
+		}
+		req.Header.Set("Content-Type", contentType)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("sending request: %w", err)
+		}
+
+		respBody, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			return fmt.Errorf("reading response: %w", err)
+		}
+
+		if isRetryableStatus(resp.StatusCode) {
+			nextDelay = c.retryDelay(attempt, resp.Header)
+			if attempt < maxRetries {
+				continue
+			}
+			return fmt.Errorf("pushover API returned HTTP %d after %d attempts", resp.StatusCode, attempt+1)
+		}
+
+		return unmarshalResponse(resp.StatusCode, respBody, out)
 	}
 
-	if err := json.Unmarshal(respBody, out); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
-	}
-
-	type statusChecker struct {
-		Status int      `json:"status"`
-		Errors []string `json:"errors"`
-	}
-	var sc statusChecker
-	_ = json.Unmarshal(respBody, &sc)
-	if sc.Status != 1 {
-		return fmt.Errorf("pushover API error: %s", strings.Join(sc.Errors, "; "))
-	}
-
-	return nil
+	return fmt.Errorf("pushover API request failed")
 }
 
 // GetReceipt retrieves delivery status for an emergency message receipt using the client's token.
@@ -776,24 +785,50 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, body, contentTyp
 			return fmt.Errorf("pushover API returned HTTP %d after %d attempts", resp.StatusCode, attempt+1)
 		}
 
-		if err := json.Unmarshal(respBody, out); err != nil {
-			return fmt.Errorf("decoding response: %w", err)
-		}
+		return unmarshalResponse(resp.StatusCode, respBody, out)
+	}
 
+	return fmt.Errorf("pushover API request failed")
+}
+
+func unmarshalResponse(statusCode int, body []byte, out interface{}) error {
+	if statusCode < 200 || statusCode >= 300 {
 		type statusChecker struct {
 			Status int      `json:"status"`
 			Errors []string `json:"errors"`
 		}
 		var sc statusChecker
-		_ = json.Unmarshal(respBody, &sc)
-		if sc.Status != 1 {
+		if err := json.Unmarshal(body, &sc); err == nil && len(sc.Errors) > 0 {
 			return fmt.Errorf("pushover API error: %s", strings.Join(sc.Errors, "; "))
 		}
-
-		return nil
+		trimmed := strings.TrimSpace(string(body))
+		if len(trimmed) > 200 {
+			trimmed = trimmed[:200] + "..."
+		}
+		if trimmed == "" {
+			return fmt.Errorf("pushover API returned HTTP %d", statusCode)
+		}
+		return fmt.Errorf("pushover API returned HTTP %d: %s", statusCode, trimmed)
 	}
 
-	return fmt.Errorf("pushover API request failed")
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("decoding response: %w", err)
+	}
+
+	type statusChecker struct {
+		Status int      `json:"status"`
+		Errors []string `json:"errors"`
+	}
+	var sc statusChecker
+	_ = json.Unmarshal(body, &sc)
+	if sc.Status != 1 {
+		if len(sc.Errors) > 0 {
+			return fmt.Errorf("pushover API error: %s", strings.Join(sc.Errors, "; "))
+		}
+		return fmt.Errorf("pushover API error (status %d)", sc.Status)
+	}
+
+	return nil
 }
 
 func isRetryableStatus(code int) bool {
