@@ -785,6 +785,29 @@ func TestGetGroup_Success(t *testing.T) {
 	}
 }
 
+func TestGetGroup_WithTokenOverride(t *testing.T) {
+	var gotToken string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotToken = r.URL.Query().Get("token")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":1,"request":"r1","name":"Custom App Group","users":[]}`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("default_tok", srv.URL, srv.Client())
+	resp, err := client.GetGroup(context.Background(), "group_123", "override_tok")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotToken != "override_tok" {
+		t.Errorf("expected query token 'override_tok', got %q", gotToken)
+	}
+	if resp.Name != "Custom App Group" {
+		t.Errorf("expected 'Custom App Group', got %s", resp.Name)
+	}
+}
+
 func TestAddGroupUser_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {

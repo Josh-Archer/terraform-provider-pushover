@@ -594,8 +594,12 @@ func (c *Client) ValidateUser(ctx context.Context, req *ValidateRequest) (*Valid
 }
 
 // GetGroup retrieves information about a Pushover delivery group.
-func (c *Client) GetGroup(ctx context.Context, groupKey string) (*GroupResponse, error) {
-	path := fmt.Sprintf("/groups/%s.json?token=%s", groupKey, url.QueryEscape(c.token))
+func (c *Client) GetGroup(ctx context.Context, groupKey string, token ...string) (*GroupResponse, error) {
+	tok := c.token
+	if len(token) > 0 && token[0] != "" {
+		tok = token[0]
+	}
+	path := fmt.Sprintf("/groups/%s.json?token=%s", url.PathEscape(groupKey), url.QueryEscape(tok))
 	var resp GroupResponse
 	if err := c.doGet(ctx, path, &resp); err != nil {
 		return nil, err
