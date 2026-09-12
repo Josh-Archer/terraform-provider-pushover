@@ -650,6 +650,79 @@ func TestGetSounds_APIError(t *testing.T) {
 	}
 }
 
+// ----- GetLimits -----
+
+func TestGetLimits_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/apps/limits.json" {
+			t.Errorf("expected path /apps/limits.json, got %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("token") != "default_tok" {
+			t.Errorf("expected token default_tok, got %s", r.URL.Query().Get("token"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":1,"request":"req1","limit":10000,"remaining":7496,"reset":1393653600}`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("default_tok", srv.URL, srv.Client())
+	limits, err := client.GetLimits(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if limits.Limit != 10000 {
+		t.Errorf("expected limit 10000, got %d", limits.Limit)
+	}
+	if limits.Remaining != 7496 {
+		t.Errorf("expected remaining 7496, got %d", limits.Remaining)
+	}
+	if limits.Reset != 1393653600 {
+		t.Errorf("expected reset 1393653600, got %d", limits.Reset)
+	}
+}
+
+func TestGetLimits_WithTokenOverride(t *testing.T) {
+	var gotToken string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotToken = r.URL.Query().Get("token")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":1,"request":"req1","limit":5000,"remaining":4000,"reset":1393653600}`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("default_tok", srv.URL, srv.Client())
+	limits, err := client.GetLimits(context.Background(), "override_tok")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotToken != "override_tok" {
+		t.Errorf("expected token 'override_tok', got %q", gotToken)
+	}
+	if limits.Limit != 5000 {
+		t.Errorf("expected limit 5000, got %d", limits.Limit)
+	}
+}
+
+func TestGetLimits_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(errorResponse("token is invalid")))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("bad", srv.URL, srv.Client())
+	_, err := client.GetLimits(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
 // ----- ValidateUser -----
 
 func TestValidateUser_RegularUser(t *testing.T) {
