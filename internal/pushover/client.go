@@ -7,6 +7,7 @@ package pushover
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -120,8 +121,11 @@ type MessageRequest struct {
 	// Attachment is a local filesystem path or http(s) URL of an image to attach.
 	// The file is uploaded via multipart/form-data. Max size: MaxAttachmentBytes.
 	Attachment string `json:"-"`
+	// AttachmentBase64 is a base64-encoded image to include with the message.
+	// When set, it is sent in application/x-www-form-urlencoded params. Max decoded size: MaxAttachmentBytes.
+	AttachmentBase64 string `json:"-"`
 	// AttachmentType is an optional MIME type override (e.g. "image/jpeg").
-	// When empty, the type is inferred from the filename or Content-Type header.
+	// When empty with Attachment, the type is inferred from the filename or Content-Type header.
 	AttachmentType string `json:"-"`
 }
 
@@ -134,15 +138,15 @@ type MessageResponse struct {
 // ReceiptResponse is the response from polling an emergency receipt.
 type ReceiptResponse struct {
 	APIResponse
-	Acknowledged        int    `json:"acknowledged"`
-	AcknowledgedAt      int64  `json:"acknowledged_at"`
-	AcknowledgedBy      string `json:"acknowledged_by"`
+	Acknowledged         int    `json:"acknowledged"`
+	AcknowledgedAt       int64  `json:"acknowledged_at"`
+	AcknowledgedBy       string `json:"acknowledged_by"`
 	AcknowledgedByDevice string `json:"acknowledged_by_device"`
-	LastDeliveredAt     int64  `json:"last_delivered_at"`
-	Expired             int    `json:"expired"`
-	ExpiresAt           int64  `json:"expires_at"`
-	CalledBack          int    `json:"called_back"`
-	CalledBackAt        int64  `json:"called_back_at"`
+	LastDeliveredAt      int64  `json:"last_delivered_at"`
+	Expired              int    `json:"expired"`
+	ExpiresAt            int64  `json:"expires_at"`
+	CalledBack           int    `json:"called_back"`
+	CalledBackAt         int64  `json:"called_back_at"`
 }
 
 // SoundsResponse is the response from listing sounds.
@@ -167,8 +171,8 @@ type ValidateRequest struct {
 // ValidateResponse is the response from validating a user.
 type ValidateResponse struct {
 	APIResponse
-	Group   int      `json:"group"`
-	Devices []string `json:"devices"`
+	Group    int      `json:"group"`
+	Devices  []string `json:"devices"`
 	Licenses []string `json:"licenses"`
 }
 
@@ -193,6 +197,10 @@ type GroupMember struct {
 func (c *Client) SendMessage(ctx context.Context, req *MessageRequest) (*MessageResponse, error) {
 	if req.Token == "" {
 		req.Token = c.token
+	}
+
+	if req.Attachment != "" && req.AttachmentBase64 != "" {
+		return nil, fmt.Errorf("cannot specify both Attachment and AttachmentBase64")
 	}
 
 	if req.Attachment != "" {
@@ -236,6 +244,27 @@ func (c *Client) SendMessage(ctx context.Context, req *MessageRequest) (*Message
 		params.Set("expire", strconv.Itoa(req.Expire))
 		if req.Callback != "" {
 			params.Set("callback", req.Callback)
+		}
+	}
+	if req.AttachmentBase64 != "" {
+		if strings.TrimSpace(req.AttachmentType) == "" {
+			return nil, fmt.Errorf("attachment_type is required when AttachmentBase64 is set")
+		}
+		trimmed := strings.TrimSpace(req.AttachmentBase64)
+		decoded, err := base64.StdEncoding.DecodeString(trimmed)
+		if err != nil {
+			if d, errRaw := base64.RawStdEncoding.DecodeString(trimmed); errRaw == nil {
+				decoded = d
+			} else {
+				return nil, fmt.Errorf("invalid base64 encoding in AttachmentBase64: %w", err)
+			}
+		}
+		if int64(len(decoded)) > MaxAttachmentBytes {
+			return nil, fmt.Errorf("attachment size %d exceeds Pushover limit of %d bytes (5 MiB)", len(decoded), MaxAttachmentBytes)
+		}
+		params.Set("attachment_base64", trimmed)
+		if req.AttachmentType != "" {
+			params.Set("attachment_type", req.AttachmentType)
 		}
 	}
 

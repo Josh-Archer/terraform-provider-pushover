@@ -6,6 +6,7 @@ package pushover_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -493,6 +494,109 @@ func TestSendMessage_AttachmentNonJSONError(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "invalid character '<'") {
 		t.Errorf("error leaked JSON parsing failure instead of HTTP status: %v", err)
+	}
+}
+
+func TestSendMessage_AttachmentBase64_Success(t *testing.T) {
+	var gotBase64, gotType string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		gotBase64 = r.FormValue("attachment_base64")
+		gotType = r.FormValue("attachment_type")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("tok", srv.URL, srv.Client())
+	rawB64 := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+	resp, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:             "u",
+		Message:          "base64 image",
+		AttachmentBase64: rawB64,
+		AttachmentType:   "image/png",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Request != "test-request-id" {
+		t.Errorf("expected request id test-request-id, got %s", resp.Request)
+	}
+	if gotBase64 != rawB64 {
+		t.Errorf("got base64 %q, want %q", gotBase64, rawB64)
+	}
+	if gotType != "image/png" {
+		t.Errorf("got type %q, want %q", gotType, "image/png")
+	}
+}
+
+func TestSendMessage_AttachmentConflict(t *testing.T) {
+	client := pushover.NewClientWithBase("tok", "http://localhost", nil)
+	_, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:             "u",
+		Message:          "both",
+		Attachment:       "/path/to/file.jpg",
+		AttachmentBase64: "dGVzdA==",
+	})
+	if err == nil {
+		t.Fatal("expected error when both Attachment and AttachmentBase64 are set")
+	}
+	if !strings.Contains(err.Error(), "cannot specify both") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestSendMessage_AttachmentBase64_Invalid(t *testing.T) {
+	client := pushover.NewClientWithBase("tok", "http://localhost", nil)
+	_, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:             "u",
+		Message:          "bad b64",
+		AttachmentBase64: "this is not base64!@#$%",
+		AttachmentType:   "image/png",
+	})
+	if err == nil {
+		t.Fatal("expected error on invalid base64")
+	}
+	if !strings.Contains(err.Error(), "invalid base64") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestSendMessage_AttachmentBase64_TooLarge(t *testing.T) {
+	// Create base64 of size MaxAttachmentBytes + 10
+	oversized := make([]byte, pushover.MaxAttachmentBytes+10)
+	b64 := base64.StdEncoding.EncodeToString(oversized)
+
+	client := pushover.NewClientWithBase("tok", "http://localhost", nil)
+	_, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:             "u",
+		Message:          "oversized",
+		AttachmentBase64: b64,
+		AttachmentType:   "image/png",
+	})
+	if err == nil {
+		t.Fatal("expected error on oversized base64 attachment")
+	}
+	if !strings.Contains(err.Error(), "exceeds Pushover limit") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestSendMessage_AttachmentBase64_MissingType(t *testing.T) {
+	client := pushover.NewClientWithBase("tok", "http://localhost", nil)
+	_, err := client.SendMessage(context.Background(), &pushover.MessageRequest{
+		User:             "u",
+		Message:          "missing type",
+		AttachmentBase64: "dGVzdA==",
+	})
+	if err == nil {
+		t.Fatal("expected error when AttachmentType is missing")
+	}
+	if !strings.Contains(err.Error(), "attachment_type is required") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }
 

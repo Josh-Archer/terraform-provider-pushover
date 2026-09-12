@@ -16,12 +16,12 @@ import (
 
 // TestMessageResource_Schema validates the minimal required fields are accepted.
 func TestMessageResource_Schema(t *testing.T) {
-t.Parallel()
-resource.UnitTest(t, resource.TestCase{
-ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-Steps: []resource.TestStep{
-{
-Config: `
+	t.Parallel()
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
 provider "pushover" { api_token = "fake_token_for_schema_test" }
 
 resource "pushover_message" "test" {
@@ -30,23 +30,23 @@ resource "pushover_message" "test" {
   title    = "Test"
   priority = 0
 }`,
-// PlanOnly so we validate schema without hitting the real API.
-// ExpectNonEmptyPlan because the resource doesn't exist yet.
-PlanOnly:           true,
-ExpectNonEmptyPlan: true,
-},
-},
-})
+				// PlanOnly so we validate schema without hitting the real API.
+				// ExpectNonEmptyPlan because the resource doesn't exist yet.
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
 }
 
 // TestMessageResource_AllOptionalFields ensures all optional fields are accepted.
 func TestMessageResource_AllOptionalFields(t *testing.T) {
-t.Parallel()
-resource.UnitTest(t, resource.TestCase{
-ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-Steps: []resource.TestStep{
-{
-Config: `
+	t.Parallel()
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
 provider "pushover" { api_token = "fake" }
 
 resource "pushover_message" "full" {
@@ -62,21 +62,21 @@ resource "pushover_message" "full" {
   monospace  = false
   ttl        = 3600
 }`,
-PlanOnly:           true,
-ExpectNonEmptyPlan: true,
-},
-},
-})
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
 }
 
 // TestMessageResource_EmergencyPriorityFields validates emergency fields are accepted.
 func TestMessageResource_EmergencyPriorityFields(t *testing.T) {
-t.Parallel()
-resource.UnitTest(t, resource.TestCase{
-ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-Steps: []resource.TestStep{
-{
-Config: `
+	t.Parallel()
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
 provider "pushover" { api_token = "fake" }
 
 resource "pushover_message" "emergency" {
@@ -87,21 +87,21 @@ resource "pushover_message" "emergency" {
   expire   = 3600
   callback = "https://example.com/ack"
 }`,
-PlanOnly:           true,
-ExpectNonEmptyPlan: true,
-},
-},
-})
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
 }
 
 // TestMessageResource_LowPriority validates negative priority values are accepted.
 func TestMessageResource_LowPriority(t *testing.T) {
-t.Parallel()
-resource.UnitTest(t, resource.TestCase{
-ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-Steps: []resource.TestStep{
-{
-Config: `
+	t.Parallel()
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
 provider "pushover" { api_token = "fake" }
 
 resource "pushover_message" "low" {
@@ -109,23 +109,23 @@ resource "pushover_message" "low" {
   message  = "quiet notification"
   priority = -2
 }`,
-PlanOnly:           true,
-ExpectNonEmptyPlan: true,
-},
-},
-})
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
 }
 
 // ----- Validation error tests -----
 
 // TestMessageResource_PriorityOutOfRange expects a validation error for priority > 2.
 func TestMessageResource_PriorityOutOfRange(t *testing.T) {
-t.Parallel()
-resource.UnitTest(t, resource.TestCase{
-ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-Steps: []resource.TestStep{
-{
-Config: `
+	t.Parallel()
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
 provider "pushover" { api_token = "fake" }
 
 resource "pushover_message" "bad" {
@@ -133,48 +133,48 @@ resource "pushover_message" "bad" {
   message  = "Bad priority"
   priority = 5
 }`,
-PlanOnly:    true,
-ExpectError: regexp.MustCompile(`(?i)(value must be between|invalid)`),
-},
-},
-})
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`(?i)(value must be between|invalid)`),
+			},
+		},
+	})
 }
 
 // TestMessageResource_MessageTooLong expects a validation error for a message > 1024 chars.
 func TestMessageResource_MessageTooLong(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-longMsg := make([]byte, 1025)
-for i := range longMsg {
-longMsg[i] = 'a'
-}
+	longMsg := make([]byte, 1025)
+	for i := range longMsg {
+		longMsg[i] = 'a'
+	}
 
-resource.UnitTest(t, resource.TestCase{
-ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-Steps: []resource.TestStep{
-{
-Config: `
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
 provider "pushover" { api_token = "fake" }
 
 resource "pushover_message" "long" {
   user_key = "utest1234567890abcdefghijklmnopqr"
   message  = "` + string(longMsg) + `"
 }`,
-PlanOnly:    true,
-ExpectError: regexp.MustCompile(`(?i)(length|characters)`),
-},
-},
-})
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`(?i)(length|characters)`),
+			},
+		},
+	})
 }
 
 // TestMessageResource_NegativeTTL expects a validation error for ttl < 1.
 func TestMessageResource_NegativeTTL(t *testing.T) {
-t.Parallel()
-resource.UnitTest(t, resource.TestCase{
-ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-Steps: []resource.TestStep{
-{
-Config: `
+	t.Parallel()
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
 provider "pushover" { api_token = "fake" }
 
 resource "pushover_message" "neg_ttl" {
@@ -182,21 +182,21 @@ resource "pushover_message" "neg_ttl" {
   message  = "test"
   ttl      = -1
 }`,
-PlanOnly:    true,
-ExpectError: regexp.MustCompile(`(?i)(value must be at least|invalid)`),
-},
-},
-})
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`(?i)(value must be at least|invalid)`),
+			},
+		},
+	})
 }
 
 // TestMessageResource_RetryBelowMinimum expects a validation error for retry < 30.
 func TestMessageResource_RetryBelowMinimum(t *testing.T) {
-t.Parallel()
-resource.UnitTest(t, resource.TestCase{
-ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-Steps: []resource.TestStep{
-{
-Config: `
+	t.Parallel()
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
 provider "pushover" { api_token = "fake" }
 
 resource "pushover_message" "low_retry" {
@@ -206,21 +206,21 @@ resource "pushover_message" "low_retry" {
   retry    = 10
   expire   = 3600
 }`,
-PlanOnly:    true,
-ExpectError: regexp.MustCompile(`(?i)(value must be at least|invalid)`),
-},
-},
-})
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`(?i)(value must be at least|invalid)`),
+			},
+		},
+	})
 }
 
 // TestMessageResource_ExpireExceedsMaximum expects a validation error for expire > 10800.
 func TestMessageResource_ExpireExceedsMaximum(t *testing.T) {
-t.Parallel()
-resource.UnitTest(t, resource.TestCase{
-ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-Steps: []resource.TestStep{
-{
-Config: `
+	t.Parallel()
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
 provider "pushover" { api_token = "fake" }
 
 resource "pushover_message" "big_expire" {
@@ -230,27 +230,27 @@ resource "pushover_message" "big_expire" {
   retry    = 30
   expire   = 99999
 }`,
-PlanOnly:    true,
-ExpectError: regexp.MustCompile(`(?i)(value must be between|invalid)`),
-},
-},
-})
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`(?i)(value must be between|invalid)`),
+			},
+		},
+	})
 }
 
 // TestMessageResource_TitleTooLong expects a validation error for title > 250 chars.
 func TestMessageResource_TitleTooLong(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-longTitle := make([]byte, 251)
-for i := range longTitle {
-longTitle[i] = 'T'
-}
+	longTitle := make([]byte, 251)
+	for i := range longTitle {
+		longTitle[i] = 'T'
+	}
 
-resource.UnitTest(t, resource.TestCase{
-ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-Steps: []resource.TestStep{
-{
-Config: `
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
 provider "pushover" { api_token = "fake" }
 
 resource "pushover_message" "long_title" {
@@ -258,11 +258,11 @@ resource "pushover_message" "long_title" {
   message  = "test"
   title    = "` + string(longTitle) + `"
 }`,
-PlanOnly:    true,
-ExpectError: regexp.MustCompile(`(?i)(length|characters)`),
-},
-},
-})
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`(?i)(length|characters)`),
+			},
+		},
+	})
 }
 
 // TestMessageResource_IdempotencyKeySchema accepts the optional idempotency_key attribute.
@@ -581,4 +581,79 @@ resource "pushover_message" "versioned" {
 	if got := atomic.LoadInt32(sends); got != 1 {
 		t.Fatalf("expected exactly 1 send (plan-only key change), got %d", got)
 	}
+}
+
+// TestMessageResource_AttachmentBase64_Schema validates attachment_base64 is accepted.
+func TestMessageResource_AttachmentBase64_Schema(t *testing.T) {
+	t.Parallel()
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+provider "pushover" { api_token = "fake" }
+
+resource "pushover_message" "b64" {
+  user_key          = "utest1234567890abcdefghijklmnopqr"
+  message           = "Image via base64"
+  attachment_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+  attachment_type   = "image/png"
+}`,
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
+}
+
+// TestMessageResource_AttachmentConflict validates conflict when both attachment and attachment_base64 are set.
+func TestMessageResource_AttachmentConflict(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("API should not be called when attachment attributes conflict")
+	}))
+	defer srv.Close()
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+provider "pushover" {
+  api_token = "fake"
+}
+
+resource "pushover_message" "bad" {
+  user_key          = "utest1234567890abcdefghijklmnopqr"
+  message           = "conflict"
+  attachment        = "/some/path.jpg"
+  attachment_base64 = "dGVzdA=="
+}`,
+				ExpectError: regexp.MustCompile(`Only one of attachment or attachment_base64 may be specified`),
+			},
+		},
+	})
+}
+
+// TestMessageResource_AttachmentBase64_RequiresType validates attachment_type is required with attachment_base64.
+func TestMessageResource_AttachmentBase64_RequiresType(t *testing.T) {
+	t.Parallel()
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+provider "pushover" { api_token = "fake" }
+
+resource "pushover_message" "b64" {
+  user_key          = "utest1234567890abcdefghijklmnopqr"
+  message           = "missing type"
+  attachment_base64 = "dGVzdA=="
+}`,
+				ExpectError: regexp.MustCompile(`attachment_type is required when attachment_base64 is set`),
+			},
+		},
+	})
 }
