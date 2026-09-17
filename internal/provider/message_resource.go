@@ -54,8 +54,9 @@ type MessageResourceModel struct {
 	TTL       types.Int64  `tfsdk:"ttl"`
 
 	// Attachment fields
-	Attachment     types.String `tfsdk:"attachment"`
-	AttachmentType types.String `tfsdk:"attachment_type"`
+	Attachment       types.String `tfsdk:"attachment"`
+	AttachmentBase64 types.String `tfsdk:"attachment_base64"`
+	AttachmentType   types.String `tfsdk:"attachment_type"`
 
 	// Emergency priority (priority=2) fields
 	Retry    types.Int64  `tfsdk:"retry"`
@@ -195,14 +196,21 @@ func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				},
 			},
 			"attachment": schema.StringAttribute{
-				MarkdownDescription: "Local filesystem path or remote `http(s)` URL of an image to attach. Remote URLs are downloaded by the provider and uploaded to Pushover. Max 5,242,880 bytes (5 MiB). Forces replacement.",
+				MarkdownDescription: "Local filesystem path or remote `http(s)` URL of an image to attach. Remote URLs are downloaded by the provider and uploaded to Pushover. Max 5,242,880 bytes (5 MiB). Exactly one of `attachment` or `attachment_base64` may be specified. Forces replacement.",
+				Optional:            true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"attachment_base64": schema.StringAttribute{
+				MarkdownDescription: "Base64-encoded image data to attach. Max size when decoded is 5,242,880 bytes (5 MiB). Requires `attachment_type`. Exactly one of `attachment` or `attachment_base64` may be specified. Forces replacement.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"attachment_type": schema.StringAttribute{
-				MarkdownDescription: "Optional MIME type for the attachment (e.g. `image/jpeg`). Inferred from the file extension or response `Content-Type` when omitted. Requires `attachment`. Forces replacement.",
+				MarkdownDescription: "MIME type for the attachment (e.g. `image/jpeg`). Optional with `attachment` (inferred from the file extension or response `Content-Type`). Required with `attachment_base64` because the Pushover API does not infer MIME type from Base64 payloads.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
@@ -339,16 +347,33 @@ func (r *MessageResource) Create(ctx context.Context, req resource.CreateRequest
 			msgReq.Callback = data.Callback.ValueString()
 		}
 	}
+	if !data.Attachment.IsNull() && !data.Attachment.IsUnknown() && !data.AttachmentBase64.IsNull() && !data.AttachmentBase64.IsUnknown() {
+		resp.Diagnostics.AddError(
+			"Conflicting Attributes",
+			"Only one of attachment or attachment_base64 may be specified.",
+		)
+		return
+	}
 	if !data.Attachment.IsNull() && !data.Attachment.IsUnknown() {
 		msgReq.Attachment = data.Attachment.ValueString()
+	}
+	if !data.AttachmentBase64.IsNull() && !data.AttachmentBase64.IsUnknown() {
+		msgReq.AttachmentBase64 = data.AttachmentBase64.ValueString()
 	}
 	if !data.AttachmentType.IsNull() && !data.AttachmentType.IsUnknown() {
 		msgReq.AttachmentType = data.AttachmentType.ValueString()
 	}
-	if msgReq.AttachmentType != "" && msgReq.Attachment == "" {
+	if msgReq.AttachmentType != "" && msgReq.Attachment == "" && msgReq.AttachmentBase64 == "" {
 		resp.Diagnostics.AddError(
 			"Invalid Attachment Configuration",
-			"attachment_type requires attachment to be set.",
+			"attachment_type requires either attachment or attachment_base64 to be set.",
+		)
+		return
+	}
+	if msgReq.AttachmentBase64 != "" && msgReq.AttachmentType == "" {
+		resp.Diagnostics.AddError(
+			"Invalid Attachment Configuration",
+			"attachment_type is required when attachment_base64 is set.",
 		)
 		return
 	}

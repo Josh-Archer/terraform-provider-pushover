@@ -189,6 +189,14 @@ resource "pushover_message" "with_remote_image" {
   message    = "Latest status graph"
   attachment = "https://example.com/status/graph.png"
 }
+
+# Base64-encoded image data
+resource "pushover_message" "with_base64_image" {
+  user_key          = var.pushover_user_key
+  message           = "Generated chart preview"
+  attachment_base64 = filebase64("${path.module}/chart.png")
+  attachment_type   = "image/png"
+}
 ```
 
 ## Schema
@@ -201,8 +209,9 @@ resource "pushover_message" "with_remote_image" {
 ### Optional
 
 - `api_token` (String, Sensitive) — Override the provider-level API token for this message. **(Forces replacement)**
-- `attachment` (String) — Local filesystem path or remote `http(s)` URL of an image to attach. Remote URLs are downloaded by the provider and uploaded to Pushover. Max **5,242,880 bytes (5 MiB)**; one attachment per message. **(Forces replacement)**
-- `attachment_type` (String) — Optional MIME type for the attachment (e.g. `image/jpeg`). Inferred from the file extension or response `Content-Type` when omitted. Requires `attachment`. **(Forces replacement)**
+- `attachment` (String) — Local filesystem path or remote `http(s)` URL of an image to attach. Remote URLs are downloaded by the provider and uploaded to Pushover. Max **5,242,880 bytes (5 MiB)**; exactly one of `attachment` or `attachment_base64` may be specified. **(Forces replacement)**
+- `attachment_base64` (String) — Base64-encoded image to include with the message. Max **5,242,880 bytes (5 MiB)** decoded; requires `attachment_type`; exactly one of `attachment` or `attachment_base64` may be specified. **(Forces replacement)**
+- `attachment_type` (String) — MIME type for the attachment (e.g. `image/jpeg` or `image/png`). Optional with `attachment` (inferred from the file extension or response `Content-Type`). Required with `attachment_base64`. **(Forces replacement)**
 - `callback` (String) — URL to ping when an emergency (`priority = 2`) message has been acknowledged. **(Forces replacement)**
 - `device` (String) — Deliver only to this named device, instead of all of the user's devices. **(Forces replacement)**
 - `expire` (Number) — For emergency priority: stop re-sending after this many seconds. Range: 1–10800. **(Forces replacement)**
