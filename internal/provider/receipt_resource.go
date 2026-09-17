@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Josh-Archer/terraform-provider-pushover/internal/pushover"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
@@ -18,7 +19,10 @@ import (
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
-var _ resource.Resource = &ReceiptResource{}
+var (
+	_ resource.Resource                = &ReceiptResource{}
+	_ resource.ResourceWithImportState = &ReceiptResource{}
+)
 
 // NewReceiptResource creates a new emergency receipt resource.
 func NewReceiptResource() resource.Resource {
@@ -35,6 +39,9 @@ type ReceiptResource struct {
 type ReceiptResourceModel struct {
 	// Required
 	Receipt types.String `tfsdk:"receipt"`
+
+	// Optional authentication override
+	APIToken types.String `tfsdk:"api_token"`
 
 	// Optional lifecycle control
 	CancelOnDestroy types.Bool `tfsdk:"cancel_on_destroy"`
@@ -75,6 +82,15 @@ func (r *ReceiptResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"receipt": schema.StringAttribute{
 				MarkdownDescription: "Emergency receipt token returned by `pushover_message.receipt` when `priority = 2`.",
 				Required:            true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"api_token": schema.StringAttribute{
+				MarkdownDescription: "Override the provider-level Pushover application API token. " +
+					"Must match the API token of the application that sent the emergency message. Forces replacement.",
+				Optional:  true,
+				Sensitive: true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -178,6 +194,7 @@ func (r *ReceiptResource) Read(ctx context.Context, req resource.ReadRequest, re
 		return
 	}
 
+	data.ID = types.StringValue(data.Receipt.ValueString())
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -223,7 +240,12 @@ func (r *ReceiptResource) Delete(ctx context.Context, req resource.DeleteRequest
 		return
 	}
 
-	if _, err := r.client.CancelReceipt(ctx, data.Receipt.ValueString()); err != nil {
+	token := ""
+	if !data.APIToken.IsNull() && !data.APIToken.IsUnknown() {
+		token = data.APIToken.ValueString()
+	}
+
+	if _, err := r.client.CancelReceiptWithToken(ctx, data.Receipt.ValueString(), token); err != nil {
 		// Treat already-cancelled / not-found as success so destroy is idempotent.
 		if isReceiptAlreadyResolved(err) {
 			return
@@ -233,8 +255,17 @@ func (r *ReceiptResource) Delete(ctx context.Context, req resource.DeleteRequest
 	}
 }
 
+// ImportState supports importing an existing receipt by its receipt token.
+func (r *ReceiptResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("receipt"), req, resp)
+}
+
 func (r *ReceiptResource) refreshReceipt(ctx context.Context, data *ReceiptResourceModel) error {
-	result, err := r.client.GetReceipt(ctx, data.Receipt.ValueString())
+	token := ""
+	if !data.APIToken.IsNull() && !data.APIToken.IsUnknown() {
+		token = data.APIToken.ValueString()
+	}
+	result, err := r.client.GetReceiptWithToken(ctx, data.Receipt.ValueString(), token)
 	if err != nil {
 		return err
 	}

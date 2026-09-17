@@ -79,6 +79,7 @@ resource "pushover_receipt" "incident" {
 
 ### Optional
 
+- `api_token` (String, Sensitive) — Override the provider-level API token. Must match the API token of the application that sent the emergency message. **(Forces replacement)**
 - `cancel_on_destroy` (Boolean) — When `true` (default), destroying this resource cancels outstanding emergency retries via the Pushover cancel API. Set to `false` to drop tracking without cancelling.
 
 ### Read-Only
@@ -97,4 +98,8 @@ resource "pushover_receipt" "incident" {
 
 ## Import
 
-Import is not supported. Create the resource with the receipt token from an emergency `pushover_message`.
+Existing receipts can be imported using the receipt token:
+
+```shell
+terraform import pushover_receipt.outage rcpt_abcdefghijklmnopqrstuvwxyz012345
+```

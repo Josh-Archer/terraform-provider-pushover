@@ -632,6 +632,51 @@ func TestCancelReceipt_Success(t *testing.T) {
 	}
 }
 
+func TestGetReceipt_TokenOverride(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("token") != "custom_token" {
+			t.Errorf("expected token custom_token, got %s", r.URL.Query().Get("token"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":1,"request":"r1","acknowledged":0}`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("default_token", srv.URL, srv.Client())
+	resp, err := client.GetReceiptWithToken(context.Background(), "rcpt123", "custom_token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Status != 1 {
+		t.Errorf("expected status 1, got %d", resp.Status)
+	}
+}
+
+func TestCancelReceipt_TokenOverride(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		if r.FormValue("token") != "custom_token" {
+			t.Errorf("expected token custom_token, got %s", r.FormValue("token"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("default_token", srv.URL, srv.Client())
+	resp, err := client.CancelReceiptWithToken(context.Background(), "rcpt123", "custom_token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Status != 1 {
+		t.Errorf("expected status 1, got %d", resp.Status)
+	}
+}
+
 // ----- Group -----
 
 func TestGetGroup_Success(t *testing.T) {
