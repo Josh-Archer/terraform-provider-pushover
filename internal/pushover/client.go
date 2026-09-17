@@ -155,6 +155,14 @@ type SoundsResponse struct {
 	Sounds map[string]string `json:"sounds"`
 }
 
+// LimitsResponse is the response from querying application message limits.
+type LimitsResponse struct {
+	APIResponse
+	Limit     int   `json:"limit"`
+	Remaining int   `json:"remaining"`
+	Reset     int64 `json:"reset"`
+}
+
 // Sound represents a single Pushover sound.
 type Sound struct {
 	Key  string
@@ -602,6 +610,20 @@ func (c *Client) GetSounds(ctx context.Context) ([]Sound, error) {
 		sounds = append(sounds, Sound{Key: k, Name: v})
 	}
 	return sounds, nil
+}
+
+// GetLimits retrieves the current message quota and remaining limit for an application.
+func (c *Client) GetLimits(ctx context.Context, token ...string) (*LimitsResponse, error) {
+	tok := c.token
+	if len(token) > 0 && token[0] != "" {
+		tok = token[0]
+	}
+	path := fmt.Sprintf("/apps/limits.json?token=%s", url.QueryEscape(tok))
+	var resp LimitsResponse
+	if err := c.doGet(ctx, path, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 // ValidateUser validates a Pushover user or group key.
