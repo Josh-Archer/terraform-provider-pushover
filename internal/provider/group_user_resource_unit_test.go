@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Josh-Archer/terraform-provider-pushover/internal/pushover"
@@ -367,5 +368,80 @@ func TestGroupUserResource_Read_GroupNotFoundRemovesState(t *testing.T) {
 	}
 	if !resp.State.Raw.IsNull() {
 		t.Fatal("expected state removed when group not found")
+	}
+}
+
+// TestGroupUserResource_Update_ReDisablesAfterMemoChange verifies that updating
+// memo on a disabled group member re-applies the disable API call since Pushover's
+// add_user endpoint automatically re-enables users.
+func TestGroupUserResource_Update_ReDisablesAfterMemoChange(t *testing.T) {
+	t.Parallel()
+
+	var addCalled, disableCalled bool
+	var postedMemo string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/add_user.json"):
+			addCalled = true
+			_ = r.ParseForm()
+			postedMemo = r.FormValue("memo")
+			_, _ = w.Write([]byte(`{"status":1,"request":"req-add"}`))
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/disable_user.json"):
+			disableCalled = true
+			_, _ = w.Write([]byte(`{"status":1,"request":"req-dis"}`))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"status":0,"errors":["not found"]}`))
+		}
+	}))
+	defer srv.Close()
+
+	res := &GroupUserResource{
+		client: pushover.NewClientWithBase("tok", srv.URL, srv.Client()),
+	}
+
+	schemaResp := &resource.SchemaResponse{}
+	res.Schema(context.Background(), resource.SchemaRequest{}, schemaResp)
+
+	plan := tfsdk.Plan{
+		Schema: schemaResp.Schema,
+		Raw: tftypes.NewValue(schemaResp.Schema.Type().TerraformType(context.Background()), map[string]tftypes.Value{
+			"id":        tftypes.NewValue(tftypes.String, "gKey/uKey"),
+			"group_key": tftypes.NewValue(tftypes.String, "gKey"),
+			"user_key":  tftypes.NewValue(tftypes.String, "uKey"),
+			"device":    tftypes.NewValue(tftypes.String, nil),
+			"memo":      tftypes.NewValue(tftypes.String, "new memo"),
+			"disabled":  tftypes.NewValue(tftypes.Bool, true),
+		}),
+	}
+	state := tfsdk.State{
+		Schema: schemaResp.Schema,
+		Raw: tftypes.NewValue(schemaResp.Schema.Type().TerraformType(context.Background()), map[string]tftypes.Value{
+			"id":        tftypes.NewValue(tftypes.String, "gKey/uKey"),
+			"group_key": tftypes.NewValue(tftypes.String, "gKey"),
+			"user_key":  tftypes.NewValue(tftypes.String, "uKey"),
+			"device":    tftypes.NewValue(tftypes.String, nil),
+			"memo":      tftypes.NewValue(tftypes.String, "old memo"),
+			"disabled":  tftypes.NewValue(tftypes.Bool, true),
+		}),
+	}
+
+	resp := &resource.UpdateResponse{State: state}
+	res.Update(context.Background(), resource.UpdateRequest{Plan: plan, State: state}, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
+	}
+	if !addCalled {
+		t.Error("expected AddGroupUser to be called for memo change")
+	}
+	if postedMemo != "new memo" {
+		t.Errorf("expected memo %q, got %q", "new memo", postedMemo)
+	}
+	if !disableCalled {
+		t.Error("expected DisableGroupUser to be called to re-disable member after memo update")
 	}
 }
