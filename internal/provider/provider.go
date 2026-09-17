@@ -108,6 +108,7 @@ func (p *PushoverProvider) DataSources(_ context.Context) []func() datasource.Da
 	return []func() datasource.DataSource{
 		NewSoundsDataSource,
 		NewValidateUserDataSource,
+		NewGroupDataSource,
 	}
 }
 
