@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/Josh-Archer/terraform-provider-pushover/internal/pushover"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -89,6 +90,9 @@ func (d *SoundsDataSource) Read(ctx context.Context, _ datasource.ReadRequest, r
 		soundsMap[s.Key] = types.StringValue(s.Name)
 		keysList = append(keysList, types.StringValue(s.Key))
 	}
+	sort.Slice(keysList, func(i, j int) bool {
+		return keysList[i].(types.String).ValueString() < keysList[j].(types.String).ValueString()
+	})
 
 	soundsTF, diags := types.MapValue(types.StringType, soundsMap)
 	resp.Diagnostics.Append(diags...)

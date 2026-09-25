@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -598,7 +599,7 @@ func (c *Client) CancelReceiptWithToken(ctx context.Context, receipt, token stri
 	return &resp, nil
 }
 
-// GetSounds returns the list of available Pushover sounds.
+// GetSounds returns the list of available Pushover sounds, sorted by key.
 func (c *Client) GetSounds(ctx context.Context) ([]Sound, error) {
 	path := fmt.Sprintf("/sounds.json?token=%s", url.QueryEscape(c.token))
 	var resp SoundsResponse
@@ -609,6 +610,9 @@ func (c *Client) GetSounds(ctx context.Context) ([]Sound, error) {
 	for k, v := range resp.Sounds {
 		sounds = append(sounds, Sound{Key: k, Name: v})
 	}
+	sort.Slice(sounds, func(i, j int) bool {
+		return sounds[i].Key < sounds[j].Key
+	})
 	return sounds, nil
 }
 
