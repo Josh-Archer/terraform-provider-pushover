@@ -622,7 +622,7 @@ func TestGetSounds_Success(t *testing.T) {
 		t.Errorf("expected 3 sounds, got %d", len(sounds))
 	}
 
-	// Verify all keys are present.
+	// Verify all keys are present and sorted alphabetically.
 	soundMap := make(map[string]string)
 	for _, s := range sounds {
 		soundMap[s.Key] = s.Name
@@ -632,6 +632,77 @@ func TestGetSounds_Success(t *testing.T) {
 	}
 	if soundMap["bike"] != "Bike" {
 		t.Errorf("unexpected sound name for 'bike': %s", soundMap["bike"])
+	}
+
+	expectedKeys := []string{"bike", "bugle", "pushover"}
+	for i, expected := range expectedKeys {
+		if sounds[i].Key != expected {
+			t.Errorf("expected sounds[%d].Key = %q, got %q", i, expected, sounds[i].Key)
+		}
+	}
+}
+
+func TestGetSounds_DeterministicOrder(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"status": 1,
+			"request": "r1",
+			"sounds": {
+				"pushover": "Pushover (default)",
+				"bike": "Bike",
+				"bugle": "Bugle",
+				"cashregister": "Cash Register",
+				"classical": "Classical",
+				"cosmic": "Cosmic",
+				"falling": "Falling",
+				"gamelan": "Gamelan",
+				"incoming": "Incoming",
+				"intermission": "Intermission",
+				"magic": "Magic",
+				"mechanical": "Mechanical",
+				"pianobar": "Piano Bar",
+				"siren": "Siren",
+				"spacealarm": "Space Alarm",
+				"tugboat": "Tug Boat",
+				"alien": "Alien Alarm",
+				"climb": "Climb",
+				"persistent": "Persistent",
+				"echo": "Pushover Echo",
+				"updown": "Up Down",
+				"none": "None"
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("tok", srv.URL, srv.Client())
+
+	var firstKeys []string
+	for iter := 0; iter < 20; iter++ {
+		sounds, err := client.GetSounds(context.Background())
+		if err != nil {
+			t.Fatalf("iteration %d: unexpected error: %v", iter, err)
+		}
+
+		currentKeys := make([]string, len(sounds))
+		for i, s := range sounds {
+			currentKeys[i] = s.Key
+			if i > 0 && currentKeys[i] < currentKeys[i-1] {
+				t.Fatalf("iteration %d: sounds not sorted at index %d: %s < %s", iter, i, currentKeys[i], currentKeys[i-1])
+			}
+		}
+
+		if firstKeys == nil {
+			firstKeys = currentKeys
+		} else {
+			for i := range currentKeys {
+				if currentKeys[i] != firstKeys[i] {
+					t.Fatalf("iteration %d: key order mismatch at index %d: %q != %q", iter, i, currentKeys[i], firstKeys[i])
+				}
+			}
+		}
 	}
 }
 
