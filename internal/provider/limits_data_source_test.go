@@ -99,8 +99,11 @@ func TestLimitsDataSource_Read_Success(t *testing.T) {
 		t.Fatalf("state get diags: %v", diags)
 	}
 
-	if state.ID.ValueString() != "override-token" {
-		t.Errorf("expected id 'override-token', got %q", state.ID.ValueString())
+	if state.ID.ValueString() != "limits" {
+		t.Errorf("expected id 'limits', got %q", state.ID.ValueString())
+	}
+	if state.ID.ValueString() == "override-token" {
+		t.Errorf("expected id not to expose sensitive api_token override")
 	}
 	if state.Limit.ValueInt64() != 10000 {
 		t.Errorf("expected limit 10000, got %d", state.Limit.ValueInt64())
