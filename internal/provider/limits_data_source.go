@@ -101,11 +101,7 @@ func (d *LimitsDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		return
 	}
 
-	if len(token) > 0 {
-		data.ID = types.StringValue(token[0])
-	} else {
-		data.ID = types.StringValue("limits")
-	}
+	data.ID = types.StringValue("limits")
 	data.Limit = types.Int64Value(int64(limits.Limit))
 	data.Remaining = types.Int64Value(int64(limits.Remaining))
 	data.Reset = types.Int64Value(limits.Reset)
