@@ -345,7 +345,6 @@ func isGroupNotFoundError(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "group not found") ||
-		strings.Contains(msg, "not found") ||
 		strings.Contains(msg, "no such group") ||
 		strings.Contains(msg, "invalid group")
 }

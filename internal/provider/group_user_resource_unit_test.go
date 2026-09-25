@@ -192,11 +192,17 @@ func TestApplyGroupMemberToModel_SyncsDisabledAndMemo(t *testing.T) {
 func TestIsGroupNotFoundError(t *testing.T) {
 	t.Parallel()
 	cases := map[string]bool{
-		"pushover API error: group not found": true,
-		"pushover API error: not found":       true,
-		"pushover API error: invalid group":   true,
-		"pushover API error: rate limited":    false,
-		"": false,
+		"pushover API error: group not found":                true,
+		"pushover API error: no such group":                  true,
+		"pushover API error: invalid group":                  true,
+		"pushover API error: not found":                      false,
+		"pushover API returned HTTP 404: 404 page not found": false,
+		"pushover API returned HTTP 404: 404 Not Found":      false,
+		"pushover API returned HTTP 404":                     false,
+		"pushover API error: user not found":                 false,
+		"pushover API error: token not found":                false,
+		"pushover API error: rate limited":                   false,
+		"":                                                   false,
 	}
 	for msg, want := range cases {
 		var err error
@@ -368,6 +374,92 @@ func TestGroupUserResource_Read_GroupNotFoundRemovesState(t *testing.T) {
 	}
 	if !resp.State.Raw.IsNull() {
 		t.Fatal("expected state removed when group not found")
+	}
+}
+
+// TestGroupUserResource_Read_UnrelatedHTTP404RetainsStateWithError verifies that
+// an unrelated HTTP 404 response (e.g. from an intermediary or HTML error body)
+// does not remove membership from state, but reports an error diagnostic instead.
+func TestGroupUserResource_Read_UnrelatedHTTP404RetainsStateWithError(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("404 page not found"))
+	}))
+	defer srv.Close()
+
+	res := &GroupUserResource{
+		client: pushover.NewClientWithBase("tok", srv.URL, srv.Client()),
+	}
+
+	schemaResp := &resource.SchemaResponse{}
+	res.Schema(context.Background(), resource.SchemaRequest{}, schemaResp)
+
+	state := tfsdk.State{
+		Schema: schemaResp.Schema,
+		Raw: tftypes.NewValue(schemaResp.Schema.Type().TerraformType(context.Background()), map[string]tftypes.Value{
+			"id":        tftypes.NewValue(tftypes.String, "gKey/uKey"),
+			"group_key": tftypes.NewValue(tftypes.String, "gKey"),
+			"user_key":  tftypes.NewValue(tftypes.String, "uKey"),
+			"device":    tftypes.NewValue(tftypes.String, nil),
+			"memo":      tftypes.NewValue(tftypes.String, nil),
+			"disabled":  tftypes.NewValue(tftypes.Bool, false),
+		}),
+	}
+
+	resp := &resource.ReadResponse{State: state}
+	res.Read(context.Background(), resource.ReadRequest{State: state}, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected diagnostic error for unrelated HTTP 404, got none")
+	}
+	if resp.State.Raw.IsNull() {
+		t.Fatal("expected state to be retained on unrelated HTTP 404 error, but it was removed")
+	}
+}
+
+// TestGroupUserResource_Read_UnrelatedAPIErrorRetainsStateWithError verifies that
+// unrelated API errors containing substring 'not found' (like user not found or token not found)
+// do not remove membership from state, but report an error diagnostic instead.
+func TestGroupUserResource_Read_UnrelatedAPIErrorRetainsStateWithError(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":0,"errors":["token not found"],"request":"r"}`))
+	}))
+	defer srv.Close()
+
+	res := &GroupUserResource{
+		client: pushover.NewClientWithBase("tok", srv.URL, srv.Client()),
+	}
+
+	schemaResp := &resource.SchemaResponse{}
+	res.Schema(context.Background(), resource.SchemaRequest{}, schemaResp)
+
+	state := tfsdk.State{
+		Schema: schemaResp.Schema,
+		Raw: tftypes.NewValue(schemaResp.Schema.Type().TerraformType(context.Background()), map[string]tftypes.Value{
+			"id":        tftypes.NewValue(tftypes.String, "gKey/uKey"),
+			"group_key": tftypes.NewValue(tftypes.String, "gKey"),
+			"user_key":  tftypes.NewValue(tftypes.String, "uKey"),
+			"device":    tftypes.NewValue(tftypes.String, nil),
+			"memo":      tftypes.NewValue(tftypes.String, nil),
+			"disabled":  tftypes.NewValue(tftypes.Bool, false),
+		}),
+	}
+
+	resp := &resource.ReadResponse{State: state}
+	res.Read(context.Background(), resource.ReadRequest{State: state}, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected diagnostic error for unrelated API error, got none")
+	}
+	if resp.State.Raw.IsNull() {
+		t.Fatal("expected state to be retained on unrelated API error, but it was removed")
 	}
 }
 
