@@ -139,7 +139,7 @@ func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				},
 			},
 			"priority": schema.Int64Attribute{
-				MarkdownDescription: "Message priority: `-2` (lowest), `-1` (low), `0` (normal, default), `1` (high), `2` (emergency). Forces replacement.",
+				MarkdownDescription: "Message priority: `-2` (lowest), `-1` (low), `0` (normal, default), `1` (high), `2` (emergency). Destroying an emergency message (`priority = 2`) cancels its retries. Forces replacement.",
 				Optional:            true,
 				Computed:            true,
 				Default:             int64default.StaticInt64(0),
@@ -257,7 +257,7 @@ func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				},
 			},
 			"receipt": schema.StringAttribute{
-				MarkdownDescription: "Receipt token returned for emergency (`priority = 2`) messages. Use the `pushover_receipt` resource to track acknowledgement status and cancel outstanding retries when the incident is resolved.",
+				MarkdownDescription: "Receipt token returned for emergency (`priority = 2`) messages. Destroying an emergency message cancels its outstanding retries. Use the `pushover_receipt` resource to track acknowledgement status and cancel outstanding retries when the incident is resolved.",
 				Computed:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
@@ -397,8 +397,8 @@ func (r *MessageResource) Read(_ context.Context, _ resource.ReadRequest, _ *res
 func (r *MessageResource) Update(_ context.Context, _ resource.UpdateRequest, _ *resource.UpdateResponse) {
 }
 
-// Delete cancels outstanding emergency retries if a receipt token exists,
-// since sent Pushover messages cannot otherwise be deleted.
+// Delete cancels outstanding emergency retries for emergency messages (priority 2)
+// if a receipt token exists, since sent Pushover messages cannot otherwise be deleted.
 func (r *MessageResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data MessageResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
@@ -407,7 +407,7 @@ func (r *MessageResource) Delete(ctx context.Context, req resource.DeleteRequest
 	}
 
 	receipt := data.Receipt.ValueString()
-	if receipt == "" {
+	if data.Priority.IsNull() || data.Priority.ValueInt64() != 2 || receipt == "" {
 		return
 	}
 

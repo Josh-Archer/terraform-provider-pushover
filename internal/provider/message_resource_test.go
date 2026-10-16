@@ -724,3 +724,55 @@ provider "pushover" { api_token = "fake_token" }
 		t.Errorf("expected token %q, got %q", "fake_token", cancelToken)
 	}
 }
+
+// TestMessageResource_NonEmergencyDestroyDoesNotCancelReceipt verifies that destroying a
+// non-emergency message (priority != 2) does not call the Pushover cancel receipt API endpoint.
+func TestMessageResource_NonEmergencyDestroyDoesNotCancelReceipt(t *testing.T) {
+	var cancelCalled int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/messages.json"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":1,"request":"mock-req-id"}`))
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/cancel.json"):
+			atomic.AddInt32(&cancelCalled, 1)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":1,"request":"mock-cancel-id"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"status":0,"errors":["not found"]}`))
+		}
+	}))
+	defer srv.Close()
+
+	t.Setenv("PUSHOVER_API_BASE_URL", srv.URL)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+provider "pushover" { api_token = "fake_token" }
+
+resource "pushover_message" "normal" {
+  user_key = "utest1234567890abcdefghijklmnopqr"
+  message  = "Normal priority message"
+  priority = 1
+}`,
+			},
+			{
+				// Remove the resource to trigger Delete.
+				Config: `
+provider "pushover" { api_token = "fake_token" }
+`,
+			},
+		},
+	})
+
+	if got := atomic.LoadInt32(&cancelCalled); got != 0 {
+		t.Fatalf("expected cancel endpoint not to be called on non-emergency destroy, got %d calls", got)
+	}
+}
+

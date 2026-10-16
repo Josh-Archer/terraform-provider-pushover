@@ -9,7 +9,7 @@ description: |-
 
 Sends a push notification via [Pushover](https://pushover.net) when this resource is created.
 
-Because a sent message cannot be retrieved or deleted via the API, this resource models the *act of sending* rather than a persistent object. **Any change to a configuration attribute forces replacement** and re-sends the message with the new values.
+Because a sent message cannot be retrieved or deleted via the API, this resource models the *act of sending* rather than a persistent object. **Any change to a configuration attribute forces replacement** and re-sends the message with the new values. Destroying an emergency message (`priority = 2`) with an active receipt cancels its outstanding retries; destroying non-emergency messages is a no-op.
 
 Without lifecycle guardrails, unrelated plan churn (dynamic interpolations, copy edits, provider upgrades that surface attribute diffs, etc.) can accidentally re-send notifications. Prefer the safe patterns below for one-shot and versioned notifies.
 
@@ -218,7 +218,7 @@ resource "pushover_message" "with_base64_image" {
 - `html` (Boolean) — Enable HTML formatting in the message body. **(Forces replacement)**
 - `idempotency_key` (String) — Opaque key that forces replacement when changed. Combine with `lifecycle.ignore_changes` on content attributes so only intentional key updates re-send. Not sent to the API. **(Forces replacement)**
 - `monospace` (Boolean) — Display the message in a monospace font. **(Forces replacement)**
-- `priority` (Number) — Message priority. One of: `-2` (lowest), `-1` (low), `0` (normal, default), `1` (high), `2` (emergency). **(Forces replacement)**
+- `priority` (Number) — Message priority. One of: `-2` (lowest), `-1` (low), `0` (normal, default), `1` (high), `2` (emergency). Destroying an emergency message (`priority = 2`) cancels its retries. **(Forces replacement)**
 - `retry` (Number) — For emergency priority: resend interval in seconds. Minimum: 30. **(Forces replacement)**
 - `sound` (String) — Notification sound key. Use the `pushover_sounds` data source to list valid values. **(Forces replacement)**
 - `timestamp` (Number) — Unix timestamp to display instead of the receipt time. **(Forces replacement)**
@@ -229,7 +229,7 @@ resource "pushover_message" "with_base64_image" {
 
 ### Read-Only
 
-- `receipt` (String) — For emergency messages: receipt token. Pass to `pushover_receipt` to track status and cancel on resolve.
+- `receipt` (String) — For emergency messages: receipt token. Destroying an emergency message cancels its retries. Pass to `pushover_receipt` to track status and cancel on resolve.
 - `request_id` (String) — The unique request ID returned by the Pushover API.
 
 ## Import

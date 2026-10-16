@@ -154,16 +154,39 @@ func TestMessageResource_Delete_NonEmergencyMessage_NoOp(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name    string
-		receipt types.String
+		name     string
+		priority types.Int64
+		receipt  types.String
 	}{
 		{
-			name:    "null receipt",
-			receipt: types.StringNull(),
+			name:     "priority 0 null receipt",
+			priority: types.Int64Value(0),
+			receipt:  types.StringNull(),
 		},
 		{
-			name:    "empty receipt",
-			receipt: types.StringValue(""),
+			name:     "priority 0 empty receipt",
+			priority: types.Int64Value(0),
+			receipt:  types.StringValue(""),
+		},
+		{
+			name:     "priority 0 non-empty receipt",
+			priority: types.Int64Value(0),
+			receipt:  types.StringValue("rcpt_priority_0"),
+		},
+		{
+			name:     "priority 1 non-empty receipt",
+			priority: types.Int64Value(1),
+			receipt:  types.StringValue("rcpt_priority_1"),
+		},
+		{
+			name:     "null priority non-empty receipt",
+			priority: types.Int64Null(),
+			receipt:  types.StringValue("rcpt_null_priority"),
+		},
+		{
+			name:     "priority -1 non-empty receipt",
+			priority: types.Int64Value(-1),
+			receipt:  types.StringValue("rcpt_priority_neg1"),
 		},
 	}
 
@@ -173,7 +196,7 @@ func TestMessageResource_Delete_NonEmergencyMessage_NoOp(t *testing.T) {
 			state := createMessageTestState(t, res, MessageResourceModel{
 				UserKey:   types.StringValue("utest123"),
 				Message:   types.StringValue("Normal message"),
-				Priority:  types.Int64Value(0),
+				Priority:  tc.priority,
 				Receipt:   tc.receipt,
 				RequestID: types.StringValue("req-1"),
 			})
@@ -185,7 +208,7 @@ func TestMessageResource_Delete_NonEmergencyMessage_NoOp(t *testing.T) {
 				t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
 			}
 			if cancelCalled {
-				t.Fatal("expected CancelReceiptWithToken not to be called for message without receipt")
+				t.Fatalf("expected CancelReceiptWithToken not to be called for %s", tc.name)
 			}
 		})
 	}
