@@ -397,6 +397,31 @@ func (r *MessageResource) Read(_ context.Context, _ resource.ReadRequest, _ *res
 func (r *MessageResource) Update(_ context.Context, _ resource.UpdateRequest, _ *resource.UpdateResponse) {
 }
 
-// Delete does nothing since Pushover messages cannot be deleted.
-func (r *MessageResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
+// Delete cancels outstanding emergency retries if a receipt token exists,
+// since sent Pushover messages cannot otherwise be deleted.
+func (r *MessageResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var data MessageResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	receipt := data.Receipt.ValueString()
+	if receipt == "" {
+		return
+	}
+
+	token := ""
+	if !data.APIToken.IsNull() && !data.APIToken.IsUnknown() {
+		token = data.APIToken.ValueString()
+	}
+
+	if _, err := r.client.CancelReceiptWithToken(ctx, receipt, token); err != nil {
+		// Treat already-cancelled / not-found as success so destroy is idempotent.
+		if isReceiptAlreadyResolved(err) {
+			return
+		}
+		resp.Diagnostics.AddError("Failed to cancel Pushover emergency receipt", err.Error())
+		return
+	}
 }
