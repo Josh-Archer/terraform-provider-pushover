@@ -1298,3 +1298,198 @@ func TestUpdateGlance_APIError(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+// ----- Subscription subscribers -----
+
+func TestMigrateSubscriptionUser_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/subscriptions/migrate.json" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+			return
+		}
+		if r.FormValue("token") != "app-token" {
+			t.Errorf("unexpected token: %s", r.FormValue("token"))
+		}
+		if r.FormValue("subscription") != "alerts-a1b2c3" {
+			t.Errorf("unexpected subscription: %s", r.FormValue("subscription"))
+		}
+		if r.FormValue("user") != "uQiRzpo4DXghDmr9QzzfQu27cmVRsG" {
+			t.Errorf("unexpected user: %s", r.FormValue("user"))
+		}
+		if r.FormValue("device_name") != "iphone" {
+			t.Errorf("unexpected device_name: %s", r.FormValue("device_name"))
+		}
+		if r.FormValue("sound") != "pushover" {
+			t.Errorf("unexpected sound: %s", r.FormValue("sound"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(map[string]interface{}{
+			"subscribed_user_key": "sPfjsD2fGzEd9TR52DU31Hv4A61Vvk",
+		})))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	resp, err := client.MigrateSubscriptionUser(context.Background(), &pushover.SubscriptionMigrateRequest{
+		Subscription: "alerts-a1b2c3",
+		User:         "uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+		DeviceName:   "iphone",
+		Sound:        "pushover",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Status != 1 {
+		t.Errorf("expected status 1, got %d", resp.Status)
+	}
+	if resp.SubscribedUserKey != "sPfjsD2fGzEd9TR52DU31Hv4A61Vvk" {
+		t.Errorf("unexpected subscribed_user_key: %s", resp.SubscribedUserKey)
+	}
+	if resp.Request != "test-request-id" {
+		t.Errorf("unexpected request id: %s", resp.Request)
+	}
+}
+
+func TestMigrateSubscriptionUser_OmitsOptionalFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+			return
+		}
+		if _, ok := r.PostForm["device_name"]; ok {
+			t.Errorf("device_name should be omitted, got %q", r.FormValue("device_name"))
+		}
+		if _, ok := r.PostForm["sound"]; ok {
+			t.Errorf("sound should be omitted, got %q", r.FormValue("sound"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(map[string]interface{}{
+			"subscribed_user_key": "sPfjsD2fGzEd9TR52DU31Hv4A61Vvk",
+		})))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	if _, err := client.MigrateSubscriptionUser(context.Background(), &pushover.SubscriptionMigrateRequest{
+		Subscription: "alerts-a1b2c3",
+		User:         "uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMigrateSubscriptionUser_TokenOverride(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+			return
+		}
+		if r.FormValue("token") != "override-token" {
+			t.Errorf("expected override token, got %q", r.FormValue("token"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(map[string]interface{}{
+			"subscribed_user_key": "sKeyOverride000000000000000000",
+		})))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("default-token", srv.URL, srv.Client())
+	resp, err := client.MigrateSubscriptionUser(context.Background(), &pushover.SubscriptionMigrateRequest{
+		Token:        "override-token",
+		Subscription: "alerts-a1b2c3",
+		User:         "uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.SubscribedUserKey != "sKeyOverride000000000000000000" {
+		t.Errorf("unexpected subscribed_user_key: %s", resp.SubscribedUserKey)
+	}
+}
+
+func TestMigrateSubscriptionUser_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(errorResponse("subscription not found")))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	_, err := client.MigrateSubscriptionUser(context.Background(), &pushover.SubscriptionMigrateRequest{
+		Subscription: "missing",
+		User:         "uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "subscription not found") {
+		t.Errorf("expected subscription error, got %v", err)
+	}
+}
+
+func TestMigrateSubscriptionUser_MissingSubscribedUserKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	_, err := client.MigrateSubscriptionUser(context.Background(), &pushover.SubscriptionMigrateRequest{
+		Subscription: "alerts-a1b2c3",
+		User:         "uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+	})
+	if err == nil {
+		t.Fatal("expected error when subscribed_user_key is missing")
+	}
+	if !strings.Contains(err.Error(), "subscribed_user_key") {
+		t.Errorf("expected missing key error, got %v", err)
+	}
+}
+
+func TestMigrateSubscriptionUser_RequiresSubscriptionAndUser(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	ctx := context.Background()
+
+	if _, err := client.MigrateSubscriptionUser(ctx, nil); err == nil {
+		t.Fatal("expected error for nil request")
+	}
+	if _, err := client.MigrateSubscriptionUser(ctx, &pushover.SubscriptionMigrateRequest{
+		User: "uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+	}); err == nil {
+		t.Fatal("expected error for empty subscription")
+	}
+	if _, err := client.MigrateSubscriptionUser(ctx, &pushover.SubscriptionMigrateRequest{
+		Subscription: "   ",
+		User:         "uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+	}); err == nil {
+		t.Fatal("expected error for blank subscription")
+	}
+	if _, err := client.MigrateSubscriptionUser(ctx, &pushover.SubscriptionMigrateRequest{
+		Subscription: "alerts-a1b2c3",
+	}); err == nil {
+		t.Fatal("expected error for empty user")
+	}
+	if called {
+		t.Fatal("validation failures must not call the API")
+	}
+}

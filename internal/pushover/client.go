@@ -735,6 +735,71 @@ func (c *Client) DisableGroupUser(ctx context.Context, groupKey, user, device st
 	return &resp, nil
 }
 
+// SubscriptionMigrateRequest migrates an existing user key onto an application subscription.
+// See https://pushover.net/api/subscriptions (User Key Migration).
+type SubscriptionMigrateRequest struct {
+	// Token overrides the client application token when non-empty.
+	Token string
+	// Subscription is the subscription code from the Pushover dashboard.
+	Subscription string
+	// User is the existing Pushover user key to migrate.
+	User string
+	// DeviceName optionally limits the subscription to one device.
+	DeviceName string
+	// Sound optionally sets the subscriber's preferred default sound.
+	Sound string
+}
+
+// SubscriptionMigrateResponse is the response from POST /subscriptions/migrate.json.
+type SubscriptionMigrateResponse struct {
+	APIResponse
+	// SubscribedUserKey is the key to store in place of the original user key.
+	SubscribedUserKey string `json:"subscribed_user_key"`
+}
+
+// MigrateSubscriptionUser subscribes an existing Pushover user by migrating their user key.
+// POST https://api.pushover.net/1/subscriptions/migrate.json
+//
+// On success the response includes subscribed_user_key. Pushover does not provide an
+// API to list or unsubscribe subscribers; users unsubscribe themselves.
+func (c *Client) MigrateSubscriptionUser(ctx context.Context, req *SubscriptionMigrateRequest) (*SubscriptionMigrateResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("subscription migrate request is nil")
+	}
+	if strings.TrimSpace(req.Subscription) == "" {
+		return nil, fmt.Errorf("subscription code is required")
+	}
+	if strings.TrimSpace(req.User) == "" {
+		return nil, fmt.Errorf("user key is required")
+	}
+
+	token := req.Token
+	if token == "" {
+		token = c.token
+	}
+
+	params := url.Values{}
+	params.Set("token", token)
+	params.Set("subscription", req.Subscription)
+	params.Set("user", req.User)
+	if req.DeviceName != "" {
+		params.Set("device_name", req.DeviceName)
+	}
+	if req.Sound != "" {
+		params.Set("sound", req.Sound)
+	}
+
+	var resp SubscriptionMigrateResponse
+	if err := c.doPost(ctx, "/subscriptions/migrate.json", params, &resp); err != nil {
+		return nil, err
+	}
+	resp.SubscribedUserKey = strings.TrimSpace(resp.SubscribedUserKey)
+	if resp.SubscribedUserKey == "" {
+		return nil, fmt.Errorf("pushover API error: migrate response missing subscribed_user_key")
+	}
+	return &resp, nil
+}
+
 // GlanceRequest holds fields for updating a Pushover glance widget.
 //
 // Only fields present in DataFields are sent. An empty string value clears a

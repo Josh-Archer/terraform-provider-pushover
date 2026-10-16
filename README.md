@@ -2,13 +2,14 @@
 
 [![Tests](https://github.com/Josh-Archer/terraform-provider-pushover/actions/workflows/test.yml/badge.svg)](https://github.com/Josh-Archer/terraform-provider-pushover/actions/workflows/test.yml)
 
-The Pushover provider lets you send push notifications and manage delivery groups through [Pushover](https://pushover.net) directly from Terraform or OpenTofu.
+The Pushover provider lets you send push notifications, manage delivery groups, and migrate users onto application subscriptions through [Pushover](https://pushover.net) directly from Terraform or OpenTofu.
 
 ## Features
 
 - **Send notifications** (`pushover_message`) – Full Pushover message API including priority levels, sounds, HTML formatting, URL attachments, per-device targeting, TTL, and emergency messages with retry/expire/callback.
 - **Emergency receipt lifecycle** (`pushover_receipt`) – Track acknowledgement/expiry of priority-2 messages and cancel outstanding retries when the incident is resolved.
 - **Manage group membership** (`pushover_group_user`) – Add, remove, enable, or disable users in Pushover delivery groups.
+- **Manage subscription subscribers** (`pushover_subscription_subscriber`) – Migrate an existing user key onto an application subscription and store the returned subscription user key.
 - **Update glance widgets** (`pushover_glances`) – Push short text or numeric data to smartwatch/lock-screen widgets via the Glances API.
 - **List available sounds** (`pushover_sounds`) – Query all notification sounds available to your application.
 - **Validate recipients** (`pushover_validate_user`) – Verify a user or group key and enumerate its registered devices.
@@ -205,6 +206,39 @@ resource "pushover_group_user" "ops_team" {
 | `memo`      | string | –        | Note about this member |
 | `disabled`  | bool   | –        | Disable notifications without removing (default: `false`) |
 | `id`        | string | computed | `group_key/user_key[/device]` |
+
+---
+
+### `pushover_subscription_subscriber`
+
+Migrates an existing user key onto an application subscription that already exists in the [Pushover dashboard](https://pushover.net). Destroy removes Terraform state only; Pushover has no unsubscribe API.
+
+```hcl
+resource "pushover_subscription_subscriber" "alice" {
+  subscription = "your-subscription-code"
+  user_key     = "uYourUserKey"
+  device_name  = "iphone"
+  sound        = "pushover"
+}
+
+output "alice_subscribed_user_key" {
+  value     = pushover_subscription_subscriber.alice.subscribed_user_key
+  sensitive = true
+}
+```
+
+#### Attributes
+
+| Attribute              | Type   | Required | Description |
+|------------------------|--------|----------|-------------|
+| `subscription`         | string | ✅        | Subscription code (`https://pushover.net/subscribe/CODE`) |
+| `user_key`             | string | ✅        | Existing user key to migrate |
+| `device_name`          | string | –        | Limit the subscription to this device |
+| `sound`                | string | –        | Preferred default sound |
+| `api_token`            | string | –        | Per-resource API token override |
+| `subscribed_user_key`  | string | computed | Key returned by the migration API |
+| `request_id`           | string | computed | Migration request ID |
+| `id`                   | string | computed | `subscription/user_key[/device_name]` |
 
 ---
 
