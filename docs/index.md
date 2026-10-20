@@ -56,6 +56,7 @@ Non-retryable client errors (for example HTTP 4xx validation failures) fail imme
 ## Resources
 
 - [pushover_message](resources/message.md) — Send a push notification.
+- [pushover_group](resources/group.md) — Manage the name of an existing Pushover delivery group.
 - [pushover_group_user](resources/group_user.md) — Add a user to a Pushover delivery group.
 - [pushover_glances](resources/glances.md) — Update a smartwatch/lock-screen glance widget.
 
