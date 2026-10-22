@@ -1,12 +1,12 @@
 ---
 page_title: "Pushover Provider"
 description: |-
-  Use the Pushover provider to send push notifications, update glance widgets, and manage delivery groups via the Pushover API.
+  Use the Pushover provider to send push notifications, update glance widgets, manage delivery groups, and migrate users onto application subscriptions via the Pushover API.
 ---
 
 # Pushover Provider
 
-The **Pushover** provider integrates with the [Pushover](https://pushover.net) push notification service. It allows you to send notifications and manage delivery group membership directly from Terraform or OpenTofu.
+The **Pushover** provider integrates with the [Pushover](https://pushover.net) push notification service. It allows you to send notifications, manage delivery group membership, and migrate users onto application subscriptions directly from Terraform or OpenTofu.
 
 ## Example Usage
 
@@ -58,6 +58,7 @@ Non-retryable client errors (for example HTTP 4xx validation failures) fail imme
 - [pushover_message](resources/message.md) — Send a push notification.
 - [pushover_group](resources/group.md) — Manage the name of an existing Pushover delivery group.
 - [pushover_group_user](resources/group_user.md) — Add a user to a Pushover delivery group.
+- [pushover_subscription_subscriber](resources/subscription_subscriber.md) — Migrate a user onto an application subscription.
 - [pushover_glances](resources/glances.md) — Update a smartwatch/lock-screen glance widget.
 
 ## Data Sources

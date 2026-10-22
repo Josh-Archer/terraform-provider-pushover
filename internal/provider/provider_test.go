@@ -117,6 +117,26 @@ ExpectNonEmptyPlan: true,
 })
 }
 
+func TestProvider_HasSubscriptionSubscriberResource(t *testing.T) {
+t.Parallel()
+resource.UnitTest(t, resource.TestCase{
+ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+Steps: []resource.TestStep{
+{
+Config: `
+provider "pushover" { api_token = "tok" }
+
+resource "pushover_subscription_subscriber" "probe" {
+  subscription = "alerts-a1b2c3"
+  user_key     = "uABC"
+}`,
+PlanOnly:           true,
+ExpectNonEmptyPlan: true,
+},
+},
+})
+}
+
 func TestProvider_HasReceiptResource(t *testing.T) {
 t.Parallel()
 resource.UnitTest(t, resource.TestCase{
