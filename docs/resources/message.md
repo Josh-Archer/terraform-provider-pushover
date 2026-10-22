@@ -9,7 +9,7 @@ description: |-
 
 Sends a push notification via [Pushover](https://pushover.net) when this resource is created.
 
-Because a sent message cannot be retrieved or deleted via the API, this resource models the *act of sending* rather than a persistent object. **Any change to a configuration attribute forces replacement** and re-sends the message with the new values.
+Because a sent message cannot be retrieved or deleted via the API, this resource models the *act of sending* rather than a persistent object. Message configuration changes force replacement and re-send the message. `cancel_on_destroy` is an in-place lifecycle setting, defaulting to `false`: destroying or replacing an emergency message will leave its retries active unless you opt in. When enabled, destruction cancels retries only for emergency messages with a receipt.
 
 Without lifecycle guardrails, unrelated plan churn (dynamic interpolations, copy edits, provider upgrades that surface attribute diffs, etc.) can accidentally re-send notifications. Prefer the safe patterns below for one-shot and versioned notifies.
 
@@ -138,6 +138,8 @@ resource "pushover_message" "outage" {
   retry    = 60     # Resend every 60 seconds…
   expire   = 3600   # …for up to 1 hour
   callback = "https://ops.example.com/webhook/ack"
+  # Defaults to false; set true to cancel retries when this message is destroyed.
+  cancel_on_destroy = true
 }
 
 # Track acknowledgement and cancel retries when this resource is destroyed.
@@ -213,6 +215,7 @@ resource "pushover_message" "with_base64_image" {
 - `attachment_base64` (String) — Base64-encoded image to include with the message. Max **5,242,880 bytes (5 MiB)** decoded; requires `attachment_type`; exactly one of `attachment` or `attachment_base64` may be specified. **(Forces replacement)**
 - `attachment_type` (String) — MIME type for the attachment (e.g. `image/jpeg` or `image/png`). Optional with `attachment` (inferred from the file extension or response `Content-Type`). Required with `attachment_base64`. **(Forces replacement)**
 - `callback` (String) — URL to ping when an emergency (`priority = 2`) message has been acknowledged. **(Forces replacement)**
+- `cancel_on_destroy` (Boolean) — Cancel emergency retries when this resource is destroyed. Defaults to `false`; changing this setting does not resend the message.
 - `device` (String) — Deliver only to this named device, instead of all of the user's devices. **(Forces replacement)**
 - `expire` (Number) — For emergency priority: stop re-sending after this many seconds. Range: 1–10800. **(Forces replacement)**
 - `html` (Boolean) — Enable HTML formatting in the message body. **(Forces replacement)**
@@ -229,7 +232,7 @@ resource "pushover_message" "with_base64_image" {
 
 ### Read-Only
 
-- `receipt` (String) — For emergency messages: receipt token. Pass to `pushover_receipt` to track status and cancel on resolve.
+- `receipt` (String) — For emergency messages: receipt token. When `cancel_on_destroy` is `true`, destroying this message cancels its retries. Pass to `pushover_receipt` to track status and cancel on resolve.
 - `request_id` (String) — The unique request ID returned by the Pushover API.
 
 ## Import

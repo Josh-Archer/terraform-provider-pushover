@@ -62,7 +62,7 @@ resource "pushover_message" "deploy_notification" {
 
 ### `pushover_message`
 
-Sends a Pushover notification when created. **Every configuration attribute forces replacement** (the message is re-sent). Protect against accidental re-sends from plan churn with the lifecycle patterns below (see also [`examples/resources/message_oneshot`](examples/resources/message_oneshot)).
+Sends a Pushover notification when created. Message configuration changes force replacement (the message is re-sent); `cancel_on_destroy` is an in-place lifecycle setting. It defaults to `false`, so destroying or replacing an emergency message does not cancel its retries unless you opt in. Protect against accidental re-sends from plan churn with the lifecycle patterns below (see also [`examples/resources/message_oneshot`](examples/resources/message_oneshot)).
 
 ```hcl
 resource "pushover_message" "alert" {
@@ -88,6 +88,9 @@ resource "pushover_message" "outage" {
   retry    = 60     # Re-send every 60 s until acknowledged
   expire   = 3600   # Stop re-sending after 1 h
   callback = "https://ops.example.com/ack"
+  # Set true to cancel retries if this message resource is destroyed.
+  # Defaults to false, so destroy or replacement leaves the alert active.
+  cancel_on_destroy = true
 }
 
 resource "pushover_receipt" "outage" {
@@ -149,6 +152,7 @@ resource "pushover_message" "release" {
 | `expire`          | int    | ✅ if priority=2 | Stop re-sending after this many seconds (1–10800) |
 | `callback`        | string | –        | URL to ping when emergency message is acknowledged |
 | `idempotency_key` | string | –        | Opaque key; change forces replace. Not sent to API. Use with `ignore_changes` |
+| `cancel_on_destroy` | bool | – | Cancel emergency retries when destroyed (default: `false`; mutable in place) |
 | `receipt`         | string | computed | Emergency receipt token |
 | `request_id`      | string | computed | Pushover API request ID |
 

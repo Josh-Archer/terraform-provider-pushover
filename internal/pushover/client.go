@@ -346,7 +346,7 @@ func (c *Client) downloadAttachment(ctx context.Context, rawURL, typeOverride st
 	if err != nil {
 		return nil, fmt.Errorf("downloading attachment: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("downloading attachment: unexpected status %s", resp.Status)

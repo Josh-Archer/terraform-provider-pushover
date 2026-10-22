@@ -53,6 +53,7 @@ resource "pushover_message" "emergency" {
   retry    = 60     # Resend every minute
   expire   = 3600   # Give up after 1 hour
   callback = "https://ops.example.com/webhook/ack"
+  cancel_on_destroy = true
 }
 
 # Track acknowledgement status; destroy cancels outstanding retries.
