@@ -25,16 +25,22 @@ provider "pushover" {
   api_token = var.pushover_api_token
 }
 
+# The group must already exist in Pushover. This resource manages its name.
+resource "pushover_group" "managed" {
+  group_key = var.pushover_group_key
+  name      = "Operations"
+}
+
 # --- Example 1: Add a single user to a group ---
 resource "pushover_group_user" "alice" {
-  group_key = var.pushover_group_key
+  group_key = pushover_group.managed.group_key
   user_key  = "uAliceUserKey"
   memo      = "Primary on-call"
 }
 
 # --- Example 2: Add a user with a specific device ---
 resource "pushover_group_user" "bob_mobile" {
-  group_key = var.pushover_group_key
+  group_key = pushover_group.managed.group_key
   user_key  = "uBobUserKey"
   device    = "iphone"
   memo      = "Receives alerts on iPhone only"
@@ -56,7 +62,7 @@ variable "on_call_roster" {
 
 resource "pushover_group_user" "roster" {
   for_each  = var.on_call_roster
-  group_key = var.pushover_group_key
+  group_key = pushover_group.managed.group_key
   user_key  = each.value.user_key
   memo      = each.value.memo
 }
@@ -69,7 +75,7 @@ variable "engineer_on_leave" {
 }
 
 resource "pushover_group_user" "engineer" {
-  group_key = var.pushover_group_key
+  group_key = pushover_group.managed.group_key
   user_key  = "uEngineerKey"
   memo      = "On-call engineer"
   disabled  = var.engineer_on_leave

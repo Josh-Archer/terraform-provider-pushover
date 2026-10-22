@@ -156,6 +156,26 @@ ExpectNonEmptyPlan: true,
 })
 }
 
+func TestProvider_HasGroupResource(t *testing.T) {
+t.Parallel()
+resource.UnitTest(t, resource.TestCase{
+ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+Steps: []resource.TestStep{
+{
+Config: `
+provider "pushover" { api_token = "tok" }
+
+resource "pushover_group" "probe" {
+  group_key = "gABC"
+  name      = "Operations"
+}`,
+PlanOnly:           true,
+ExpectNonEmptyPlan: true,
+},
+},
+})
+}
+
 // ----- Data source presence (acceptance; skipped when no API token) -----
 
 func TestProvider_HasSoundsDataSource(t *testing.T) {

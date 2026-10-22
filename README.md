@@ -10,6 +10,7 @@ The Pushover provider lets you send push notifications, manage delivery groups, 
 - **Emergency receipt lifecycle** (`pushover_receipt`) – Track acknowledgement/expiry of priority-2 messages and cancel outstanding retries when the incident is resolved.
 - **Manage group membership** (`pushover_group_user`) – Add, remove, enable, or disable users in Pushover delivery groups.
 - **Manage subscription subscribers** (`pushover_subscription_subscriber`) – Migrate an existing user key onto an application subscription and store the returned subscription user key.
+- **Manage delivery group names** (`pushover_group`) – Rename existing Pushover delivery groups and track their names.
 - **Update glance widgets** (`pushover_glances`) – Push short text or numeric data to smartwatch/lock-screen widgets via the Glances API.
 - **List available sounds** (`pushover_sounds`) – Query all notification sounds available to your application.
 - **Validate recipients** (`pushover_validate_user`) – Verify a user or group key and enumerate its registered devices.

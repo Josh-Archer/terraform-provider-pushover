@@ -99,6 +99,7 @@ func (p *PushoverProvider) Configure(ctx context.Context, req provider.Configure
 func (p *PushoverProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewMessageResource,
+		NewGroupResource,
 		NewGroupUserResource,
 		NewSubscriptionSubscriberResource,
 		NewReceiptResource,
