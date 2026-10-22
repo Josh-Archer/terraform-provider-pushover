@@ -776,3 +776,61 @@ provider "pushover" { api_token = "fake_token" }
 		t.Fatalf("expected cancel endpoint not to be called on non-emergency destroy, got %d calls", got)
 	}
 }
+
+// TestMessageResource_EmergencyDestroyDefaultDoesNotCancelReceipt guards the
+// cancel_on_destroy default (false): destroying a priority-2 message with a
+// receipt must not call the cancel endpoint when the attribute is omitted.
+func TestMessageResource_EmergencyDestroyDefaultDoesNotCancelReceipt(t *testing.T) {
+	var cancelCalled int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/messages.json"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":1,"request":"mock-req-id","receipt":"rcpt_emergency_default_456"}`))
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/cancel.json"):
+			atomic.AddInt32(&cancelCalled, 1)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":1,"request":"mock-cancel-id"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"status":0,"errors":["not found"]}`))
+		}
+	}))
+	defer srv.Close()
+
+	t.Setenv("PUSHOVER_API_BASE_URL", srv.URL)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+provider "pushover" { api_token = "fake_token" }
+
+resource "pushover_message" "emergency" {
+  user_key = "utest1234567890abcdefghijklmnopqr"
+  message  = "Critical incident!"
+  priority = 2
+  retry    = 60
+  expire   = 3600
+}`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("pushover_message.emergency", "receipt", "rcpt_emergency_default_456"),
+					resource.TestCheckResourceAttr("pushover_message.emergency", "cancel_on_destroy", "false"),
+				),
+			},
+			{
+				// Remove the resource to trigger Delete.
+				Config: `
+provider "pushover" { api_token = "fake_token" }
+`,
+			},
+		},
+	})
+
+	if got := atomic.LoadInt32(&cancelCalled); got != 0 {
+		t.Fatalf("expected cancel endpoint not to be called when cancel_on_destroy is omitted, got %d calls", got)
+	}
+}
