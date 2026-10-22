@@ -217,7 +217,7 @@ func TestSendMessage_LocalAttachment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	if _, err := tmp.Write(imageBytes); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestSendMessage_LocalAttachment(t *testing.T) {
 		if err != nil {
 			t.Fatalf("FormFile attachment: %v", err)
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		got, err := io.ReadAll(file)
 		if err != nil {
 			t.Fatalf("ReadAll attachment: %v", err)
@@ -299,7 +299,7 @@ func TestSendMessage_RemoteAttachmentURL(t *testing.T) {
 		if err != nil {
 			t.Fatalf("FormFile attachment: %v", err)
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		got, err := io.ReadAll(file)
 		if err != nil {
 			t.Fatalf("ReadAll: %v", err)
@@ -333,7 +333,7 @@ func TestSendMessage_AttachmentTypeOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	if _, err := tmp.Write(imageBytes); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestSendMessage_AttachmentTooLarge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	// Truncate to MaxAttachmentBytes+1.
 	if err := tmp.Truncate(int64(pushover.MaxAttachmentBytes) + 1); err != nil {
 		t.Fatalf("Truncate: %v", err)
@@ -424,7 +424,7 @@ func TestSendMessage_AttachmentRetrySuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	_, _ = tmp.Write([]byte{0xFF, 0xD8, 0xFF, 0xE0})
 	_ = tmp.Close()
 
@@ -467,7 +467,7 @@ func TestSendMessage_AttachmentNonJSONError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	_, _ = tmp.Write([]byte{0xFF, 0xD8, 0xFF, 0xE0})
 	_ = tmp.Close()
 

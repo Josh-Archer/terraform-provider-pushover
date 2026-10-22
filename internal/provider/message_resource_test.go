@@ -700,6 +700,7 @@ resource "pushover_message" "emergency" {
   priority = 2
   retry    = 60
   expire   = 3600
+  cancel_on_destroy = true
 }`,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr("pushover_message.emergency", "receipt", "rcpt_emergency_lifecycle_123"),
@@ -775,4 +776,3 @@ provider "pushover" { api_token = "fake_token" }
 		t.Fatalf("expected cancel endpoint not to be called on non-emergency destroy, got %d calls", got)
 	}
 }
-

@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
@@ -64,7 +65,8 @@ type MessageResourceModel struct {
 	Callback types.String `tfsdk:"callback"`
 
 	// Idempotency control (not sent to the API)
-	IdempotencyKey types.String `tfsdk:"idempotency_key"`
+	IdempotencyKey  types.String `tfsdk:"idempotency_key"`
+	CancelOnDestroy types.Bool   `tfsdk:"cancel_on_destroy"`
 
 	// Computed
 	Receipt   types.String `tfsdk:"receipt"`
@@ -139,7 +141,7 @@ func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				},
 			},
 			"priority": schema.Int64Attribute{
-				MarkdownDescription: "Message priority: `-2` (lowest), `-1` (low), `0` (normal, default), `1` (high), `2` (emergency). Destroying an emergency message (`priority = 2`) cancels its retries. Forces replacement.",
+				MarkdownDescription: "Message priority: `-2` (lowest), `-1` (low), `0` (normal, default), `1` (high), `2` (emergency). Forces replacement.",
 				Optional:            true,
 				Computed:            true,
 				Default:             int64default.StaticInt64(0),
@@ -256,8 +258,14 @@ func (r *MessageResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 					stringvalidator.LengthBetween(1, 256),
 				},
 			},
+			"cancel_on_destroy": schema.BoolAttribute{
+				MarkdownDescription: "When `true`, destroying an emergency message with a receipt cancels its outstanding retries. Defaults to `false` to avoid silencing an alert during an implicit destroy or replacement. Changing this setting does not resend the message.",
+				Optional:            true,
+				Computed:            true,
+				Default:             booldefault.StaticBool(false),
+			},
 			"receipt": schema.StringAttribute{
-				MarkdownDescription: "Receipt token returned for emergency (`priority = 2`) messages. Destroying an emergency message cancels its outstanding retries. Use the `pushover_receipt` resource to track acknowledgement status and cancel outstanding retries when the incident is resolved.",
+				MarkdownDescription: "Receipt token returned for emergency (`priority = 2`) messages. When `cancel_on_destroy` is `true`, destroying this message cancels outstanding retries. Use the `pushover_receipt` resource to track acknowledgement status and cancel outstanding retries when the incident is resolved.",
 				Computed:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
@@ -393,12 +401,17 @@ func (r *MessageResource) Create(ctx context.Context, req resource.CreateRequest
 // Read does nothing since Pushover messages cannot be retrieved after sending.
 func (r *MessageResource) Read(_ context.Context, _ resource.ReadRequest, _ *resource.ReadResponse) {}
 
-// Update is not used; all changes require replacement.
-func (r *MessageResource) Update(_ context.Context, _ resource.UpdateRequest, _ *resource.UpdateResponse) {
+// Update stores in-place changes to lifecycle settings that do not resend a message.
+func (r *MessageResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var data MessageResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-// Delete cancels outstanding emergency retries for emergency messages (priority 2)
-// if a receipt token exists, since sent Pushover messages cannot otherwise be deleted.
+// Delete optionally cancels outstanding emergency retries when explicitly configured.
 func (r *MessageResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data MessageResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
@@ -407,7 +420,7 @@ func (r *MessageResource) Delete(ctx context.Context, req resource.DeleteRequest
 	}
 
 	receipt := data.Receipt.ValueString()
-	if data.Priority.IsNull() || data.Priority.ValueInt64() != 2 || receipt == "" {
+	if data.CancelOnDestroy.IsNull() || !data.CancelOnDestroy.ValueBool() || data.Priority.IsNull() || data.Priority.ValueInt64() != 2 || receipt == "" {
 		return
 	}
 

@@ -60,13 +60,14 @@ func TestMessageResource_Delete_CancelsEmergencyReceipt(t *testing.T) {
 	}
 
 	state := createMessageTestState(t, res, MessageResourceModel{
-		UserKey:   types.StringValue("utest123"),
-		Message:   types.StringValue("Emergency alert"),
-		Priority:  types.Int64Value(2),
-		Retry:     types.Int64Value(60),
-		Expire:    types.Int64Value(3600),
-		Receipt:   types.StringValue("rcpt_test_emergency"),
-		RequestID: types.StringValue("req-1"),
+		UserKey:         types.StringValue("utest123"),
+		Message:         types.StringValue("Emergency alert"),
+		Priority:        types.Int64Value(2),
+		Retry:           types.Int64Value(60),
+		Expire:          types.Int64Value(3600),
+		CancelOnDestroy: types.BoolValue(true),
+		Receipt:         types.StringValue("rcpt_test_emergency"),
+		RequestID:       types.StringValue("req-1"),
 	})
 
 	resp := &resource.DeleteResponse{}
@@ -112,14 +113,15 @@ func TestMessageResource_Delete_WithAPITokenOverride(t *testing.T) {
 	}
 
 	state := createMessageTestState(t, res, MessageResourceModel{
-		UserKey:   types.StringValue("utest123"),
-		Message:   types.StringValue("Emergency alert"),
-		Priority:  types.Int64Value(2),
-		Retry:     types.Int64Value(60),
-		Expire:    types.Int64Value(3600),
-		APIToken:  types.StringValue("override_token"),
-		Receipt:   types.StringValue("rcpt_override"),
-		RequestID: types.StringValue("req-1"),
+		UserKey:         types.StringValue("utest123"),
+		Message:         types.StringValue("Emergency alert"),
+		Priority:        types.Int64Value(2),
+		Retry:           types.Int64Value(60),
+		Expire:          types.Int64Value(3600),
+		CancelOnDestroy: types.BoolValue(true),
+		APIToken:        types.StringValue("override_token"),
+		Receipt:         types.StringValue("rcpt_override"),
+		RequestID:       types.StringValue("req-1"),
 	})
 
 	resp := &resource.DeleteResponse{}
@@ -157,6 +159,7 @@ func TestMessageResource_Delete_NonEmergencyMessage_NoOp(t *testing.T) {
 		name     string
 		priority types.Int64
 		receipt  types.String
+		cancel   types.Bool
 	}{
 		{
 			name:     "priority 0 null receipt",
@@ -188,17 +191,24 @@ func TestMessageResource_Delete_NonEmergencyMessage_NoOp(t *testing.T) {
 			priority: types.Int64Value(-1),
 			receipt:  types.StringValue("rcpt_priority_neg1"),
 		},
+		{
+			name:     "emergency with cancellation disabled",
+			priority: types.Int64Value(2),
+			receipt:  types.StringValue("rcpt_emergency_no_cancel"),
+			cancel:   types.BoolValue(false),
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			cancelCalled = false
 			state := createMessageTestState(t, res, MessageResourceModel{
-				UserKey:   types.StringValue("utest123"),
-				Message:   types.StringValue("Normal message"),
-				Priority:  tc.priority,
-				Receipt:   tc.receipt,
-				RequestID: types.StringValue("req-1"),
+				UserKey:         types.StringValue("utest123"),
+				Message:         types.StringValue("Normal message"),
+				Priority:        tc.priority,
+				CancelOnDestroy: tc.cancel,
+				Receipt:         tc.receipt,
+				RequestID:       types.StringValue("req-1"),
 			})
 
 			resp := &resource.DeleteResponse{}
@@ -263,13 +273,14 @@ func TestMessageResource_Delete_AlreadyResolvedReceiptSucceeds(t *testing.T) {
 			}
 
 			state := createMessageTestState(t, res, MessageResourceModel{
-				UserKey:   types.StringValue("utest123"),
-				Message:   types.StringValue("Emergency alert"),
-				Priority:  types.Int64Value(2),
-				Retry:     types.Int64Value(60),
-				Expire:    types.Int64Value(3600),
-				Receipt:   types.StringValue("rcpt_resolved"),
-				RequestID: types.StringValue("req-1"),
+				UserKey:         types.StringValue("utest123"),
+				Message:         types.StringValue("Emergency alert"),
+				Priority:        types.Int64Value(2),
+				Retry:           types.Int64Value(60),
+				Expire:          types.Int64Value(3600),
+				CancelOnDestroy: types.BoolValue(true),
+				Receipt:         types.StringValue("rcpt_resolved"),
+				RequestID:       types.StringValue("req-1"),
 			})
 
 			resp := &resource.DeleteResponse{}
@@ -297,13 +308,14 @@ func TestMessageResource_Delete_APIError_ReportsDiagnostic(t *testing.T) {
 	}
 
 	state := createMessageTestState(t, res, MessageResourceModel{
-		UserKey:   types.StringValue("utest123"),
-		Message:   types.StringValue("Emergency alert"),
-		Priority:  types.Int64Value(2),
-		Retry:     types.Int64Value(60),
-		Expire:    types.Int64Value(3600),
-		Receipt:   types.StringValue("rcpt_err"),
-		RequestID: types.StringValue("req-1"),
+		UserKey:         types.StringValue("utest123"),
+		Message:         types.StringValue("Emergency alert"),
+		Priority:        types.Int64Value(2),
+		Retry:           types.Int64Value(60),
+		Expire:          types.Int64Value(3600),
+		CancelOnDestroy: types.BoolValue(true),
+		Receipt:         types.StringValue("rcpt_err"),
+		RequestID:       types.StringValue("req-1"),
 	})
 
 	resp := &resource.DeleteResponse{}
