@@ -169,8 +169,15 @@ func (r *ReceiptResource) Create(ctx context.Context, req resource.CreateRequest
 	}
 
 	if err := r.refreshReceipt(ctx, &data); err != nil {
-		resp.Diagnostics.AddError("Failed to read Pushover receipt", err.Error())
-		return
+		if !isReceiptNotFound(err) {
+			resp.Diagnostics.AddError("Failed to read Pushover receipt", err.Error())
+			return
+		}
+		// Pushover stops serving receipts some time after they expire. Record the
+		// receipt as expired instead of failing so the resource never wedges.
+		markReceiptExpired(&data, nil)
+		resp.Diagnostics.AddWarning("Pushover receipt not found",
+			"The receipt is no longer queryable (it has likely expired). It is tracked as expired; no cancel will be sent on destroy.")
 	}
 
 	data.ID = types.StringValue(data.Receipt.ValueString())
@@ -185,13 +192,14 @@ func (r *ReceiptResource) Read(ctx context.Context, req resource.ReadRequest, re
 	}
 
 	if err := r.refreshReceipt(ctx, &data); err != nil {
-		// Receipt may no longer be queryable after long expiry windows.
-		if isReceiptNotFound(err) {
-			resp.State.RemoveResource(ctx)
+		if !isReceiptNotFound(err) {
+			resp.Diagnostics.AddError("Failed to read Pushover receipt", err.Error())
 			return
 		}
-		resp.Diagnostics.AddError("Failed to read Pushover receipt", err.Error())
-		return
+		// Receipts stop being queryable some time after expiry. Keep the
+		// last-known state and mark it expired; dropping state would plan a
+		// re-create against the same unqueryable receipt.
+		markReceiptExpired(&data, &data)
 	}
 
 	data.ID = types.StringValue(data.Receipt.ValueString())
@@ -207,16 +215,44 @@ func (r *ReceiptResource) Update(ctx context.Context, req resource.UpdateRequest
 
 	// Only cancel_on_destroy is updatable in place; refresh status while applying.
 	if err := r.refreshReceipt(ctx, &data); err != nil {
-		if isReceiptNotFound(err) {
-			resp.State.RemoveResource(ctx)
+		if !isReceiptNotFound(err) {
+			resp.Diagnostics.AddError("Failed to read Pushover receipt", err.Error())
 			return
 		}
-		resp.Diagnostics.AddError("Failed to read Pushover receipt", err.Error())
-		return
+		// Apply the planned change (cancel_on_destroy) and keep the last-known
+		// status from prior state, marked expired.
+		var prior ReceiptResourceModel
+		resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		markReceiptExpired(&data, &prior)
 	}
 
 	data.ID = types.StringValue(data.Receipt.ValueString())
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+// markReceiptExpired fills the computed status of data for a receipt that
+// Pushover no longer serves. Values come from prior when known, otherwise zero
+// values; expired is always true.
+func markReceiptExpired(data *ReceiptResourceModel, prior *ReceiptResourceModel) {
+	if prior == nil {
+		prior = &ReceiptResourceModel{}
+	}
+	b := func(v types.Bool) types.Bool { return types.BoolValue(v.ValueBool()) }
+	i := func(v types.Int64) types.Int64 { return types.Int64Value(v.ValueInt64()) }
+	str := func(v types.String) types.String { return types.StringValue(v.ValueString()) }
+	data.Acknowledged = b(prior.Acknowledged)
+	data.AcknowledgedAt = i(prior.AcknowledgedAt)
+	data.AcknowledgedBy = str(prior.AcknowledgedBy)
+	data.AcknowledgedByDevice = str(prior.AcknowledgedByDevice)
+	data.LastDeliveredAt = i(prior.LastDeliveredAt)
+	data.ExpiresAt = i(prior.ExpiresAt)
+	data.CalledBack = b(prior.CalledBack)
+	data.CalledBackAt = i(prior.CalledBackAt)
+	data.RequestID = str(prior.RequestID)
+	data.Expired = types.BoolValue(true)
 }
 
 func (r *ReceiptResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
