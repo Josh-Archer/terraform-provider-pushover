@@ -1,0 +1,29 @@
+{
+  "status": 1,
+  "request": "99d0021f-6432-4b8c-ae32-2a9f883122b2",
+  "name": "Example Team",
+  "users": [
+    {
+      "id": "uAdmin000000000000000000000001",
+      "name": "Team Owner",
+      "email": "owner@example.com",
+      "administrator": true,
+      "devices": []
+    },
+    {
+      "id": "uAdaLovelace000000000000000001",
+      "name": "Ada Lovelace",
+      "email": "ada@example.com",
+      "administrator": false,
+      "devices": [
+        {
+          "name": "pixel",
+          "os": "Android",
+          "os_version": "15",
+          "enabled": true,
+          "administratively_disabled": false
+        }
+      ]
+    }
+  ]
+}

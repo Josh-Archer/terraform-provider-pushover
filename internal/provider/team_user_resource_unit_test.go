@@ -221,6 +221,85 @@ func TestTeamUserResource_Read_RemovesMissingMembership(t *testing.T) {
 	}
 }
 
+func TestTeamUserResource_Read_PendingInviteKeepsState(t *testing.T) {
+	t.Parallel()
+
+	res := newTeamUserResource(t, func(w http.ResponseWriter, r *http.Request) {
+		writeTeamJSON(w, http.StatusOK, `{
+			"status": 1,
+			"request": "req-pending",
+			"name": "ops",
+			"users": [{"id":"other","name":"Other","email":"other@example.com","administrator":true}]
+		}`)
+	})
+	sch := teamUserSchema(t)
+	state := teamUserRawState(t, sch, map[string]tftypes.Value{
+		"id":      tftypes.NewValue(tftypes.String, "team-token/ada@example.com"),
+		"user_id": tftypes.NewValue(tftypes.String, nil),
+		"email":   tftypes.NewValue(tftypes.String, "ada@example.com"),
+		"name":    tftypes.NewValue(tftypes.String, "Ada Lovelace"),
+	})
+
+	resp := resource.ReadResponse{State: state}
+	res.Read(context.Background(), resource.ReadRequest{State: state}, &resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
+	}
+	if resp.State.Raw.IsNull() {
+		t.Fatal("pending invite (null user_id) must be treated as present on Read")
+	}
+	var got TeamUserResourceModel
+	if diags := resp.State.Get(context.Background(), &got); diags.HasError() {
+		t.Fatalf("state get: %v", diags)
+	}
+	if !got.UserID.IsNull() {
+		t.Fatalf("expected user_id to remain null while invite is pending, got %#v", got.UserID)
+	}
+	if got.ID.ValueString() != "team-token/ada@example.com" {
+		t.Fatalf("expected provisional id preserved, got %q", got.ID.ValueString())
+	}
+	if got.Name.ValueString() != "Ada Lovelace" {
+		t.Fatalf("expected configured name preserved, got %q", got.Name.ValueString())
+	}
+}
+
+func TestTeamUserResource_Read_PendingInviteAdoptsUserIDWhenJoined(t *testing.T) {
+	t.Parallel()
+
+	res := newTeamUserResource(t, func(w http.ResponseWriter, r *http.Request) {
+		writeTeamJSON(w, http.StatusOK, `{
+			"status": 1,
+			"request": "req-joined",
+			"name": "ops",
+			"users": [{"id":"user-id-1","name":"Ada Lovelace","email":"ada@example.com","administrator":false}]
+		}`)
+	})
+	sch := teamUserSchema(t)
+	state := teamUserRawState(t, sch, map[string]tftypes.Value{
+		"id":      tftypes.NewValue(tftypes.String, "team-token/ada@example.com"),
+		"user_id": tftypes.NewValue(tftypes.String, nil),
+		"email":   tftypes.NewValue(tftypes.String, "ada@example.com"),
+	})
+
+	resp := resource.ReadResponse{State: state}
+	res.Read(context.Background(), resource.ReadRequest{State: state}, &resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
+	}
+	var got TeamUserResourceModel
+	if diags := resp.State.Get(context.Background(), &got); diags.HasError() {
+		t.Fatalf("state get: %v", diags)
+	}
+	if got.UserID.ValueString() != "user-id-1" {
+		t.Fatalf("expected user_id adopted, got %q", got.UserID.ValueString())
+	}
+	if got.ID.ValueString() != "team-token/user-id-1" {
+		t.Fatalf("expected id updated to team_token/user_id, got %q", got.ID.ValueString())
+	}
+}
+
 func TestTeamUserResource_Read_UserIDMissDoesNotAdoptEmail(t *testing.T) {
 	t.Parallel()
 
@@ -657,6 +736,9 @@ func TestTeamUserResource_ImportState(t *testing.T) {
 	}
 	if got.Admin.ValueBool() || got.Instant.ValueBool() {
 		t.Fatal("expected admin and instant defaults")
+	}
+	if !got.Password.IsNull() {
+		t.Fatal("expected password to be null after import")
 	}
 
 	emailResp := &resource.ImportStateResponse{State: nullTeamState(sch)}

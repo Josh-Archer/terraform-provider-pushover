@@ -12,7 +12,7 @@ variable "pushover_team_token" {
 }
 
 variable "bob_initial_password" {
-  description = "Initial password for Bob. Stored in Terraform state. Leave null to let Pushover generate a password and email it."
+  description = "Initial password for Bob (sensitive; sent only on create and never returned by the API). Leave null to let Pushover generate a password and email it without keeping a password in Terraform state."
   type        = string
   sensitive   = true
   default     = null

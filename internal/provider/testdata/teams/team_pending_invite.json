@@ -1,0 +1,22 @@
+{
+  "status": 1,
+  "request": "88c9910e-5321-4a7b-9d21-1f8e772011a1",
+  "name": "Example Team",
+  "users": [
+    {
+      "id": "uAdmin000000000000000000000001",
+      "name": "Team Owner",
+      "email": "owner@example.com",
+      "administrator": true,
+      "devices": [
+        {
+          "name": "iphone",
+          "os": "iOS",
+          "os_version": "18.0",
+          "enabled": true,
+          "administratively_disabled": false
+        }
+      ]
+    }
+  ]
+}

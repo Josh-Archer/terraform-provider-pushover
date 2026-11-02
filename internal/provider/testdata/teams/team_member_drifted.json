@@ -1,0 +1,21 @@
+{
+  "status": 1,
+  "request": "aae11320-7543-4c9d-bf43-3b0a994233c3",
+  "name": "Example Team",
+  "users": [
+    {
+      "id": "uAdmin000000000000000000000001",
+      "name": "Team Owner",
+      "email": "owner@example.com",
+      "administrator": true,
+      "devices": []
+    },
+    {
+      "id": "uAdaLovelace000000000000000001",
+      "name": "Ada Byron",
+      "email": "ada@example.com",
+      "administrator": true,
+      "devices": []
+    }
+  ]
+}

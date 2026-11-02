@@ -64,9 +64,10 @@ func (r *TeamUserResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 		MarkdownDescription: "Adds a user to a [Pushover team](https://pushover.net/api/teams). " +
 			"`token` is that team's API token (sensitive). It is not the provider application API token.\n\n" +
 			"Create calls the add-user endpoint. Delete removes the member, and falls back to revoking a " +
-			"pending invitation when Pushover reports that the user is not on the team. Read lists the team " +
-			"and drops this resource from state when the user id (or email, before an id is known) is absent, " +
-			"so a member removed outside Terraform is recreated on the next apply.\n\n" +
+			"pending invitation when Pushover reports that the user is not on the team. Read lists the team: " +
+			"a pending invitation (`user_id` not yet assigned) is treated as present so the plan settles while " +
+			"waiting for the user to join, whereas a confirmed member (with a stored `user_id`) who is absent " +
+			"from the listing is removed from state so a member removed outside Terraform is recreated on the next apply.\n\n" +
 			"The Teams API has no update call. Changing any argument replaces the membership: Terraform removes " +
 			"the user and adds them again. At least one administrator must remain on the team.",
 		Attributes: map[string]schema.Attribute{
@@ -110,7 +111,7 @@ func (r *TeamUserResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				},
 			},
 			"password": schema.StringAttribute{
-				MarkdownDescription: "Initial password for the new user. Stored in Terraform state. When omitted, Pushover generates a password and emails it. A change replaces the membership.",
+				MarkdownDescription: "Initial password for the new user. Sent only on create; the Pushover Teams API never returns passwords. Because `terraform-plugin-framework` v1.13 (Terraform < 1.11) does not support write-only attributes, Terraform retains the configured value (marked sensitive) in state to keep plans stable, while imported resources leave `password` null. When omitted, Pushover generates a password and emails it without storing a password in state. A change replaces the membership.",
 				Optional:            true,
 				Sensitive:           true,
 				PlanModifiers: []planmodifier.String{
@@ -149,10 +150,10 @@ func (r *TeamUserResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				},
 			},
 			"user_id": schema.StringAttribute{
-				MarkdownDescription: "Pushover user id from the team listing. Import uses this id, not the email address.",
+				MarkdownDescription: "Pushover user id from the team listing. Null while an invitation is pending and populated once the user joins the team. Import uses this id, not the email address.",
 				Computed:            true,
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
+					useStateEvenWhenNullForUnknown(),
 				},
 			},
 		},
@@ -220,9 +221,18 @@ func (r *TeamUserResource) Create(ctx context.Context, req resource.CreateReques
 		data.ID = types.StringValue(teamUserResourceID(token, data.UserID.ValueString()))
 	} else {
 		// Added, but not in the listing yet (for example a pending invitation).
-		// Keep state so the next refresh can adopt the user id or drop the membership.
+		// Keep state with a null user_id so Read treats the pending invite as present
+		// until the user accepts and appears in the team listing.
 		data.UserID = types.StringNull()
 		data.ID = types.StringValue(teamUserResourceID(token, email))
+	}
+
+	// terraform-plugin-framework v1.13 (Terraform < 1.11) does not support
+	// WriteOnly attributes, so Terraform requires Create to preserve the planned
+	// configuration value for password (marked Sensitive) and Read to retain the
+	// prior state value. Ensure an unset or empty password is stored as null.
+	if data.Password.IsNull() || data.Password.IsUnknown() || data.Password.ValueString() == "" {
+		data.Password = types.StringNull()
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -248,8 +258,21 @@ func (r *TeamUserResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	member, found := findTeamUser(teamResp.Users, stringOrEmpty(data.UserID), stringOrEmpty(data.Email))
+	userID := strings.TrimSpace(stringOrEmpty(data.UserID))
+	email := strings.TrimSpace(stringOrEmpty(data.Email))
+	member, found := findTeamUser(teamResp.Users, userID, email)
 	if !found {
+		if userID == "" && email != "" {
+			// Pending invitation: the user has not yet joined the team, so the
+			// listing has not assigned a user_id. Treat the pending invite as
+			// present so plans settle instead of re-adding on every apply.
+			data.UserID = types.StringNull()
+			if data.ID.IsNull() || strings.TrimSpace(data.ID.ValueString()) == "" {
+				data.ID = types.StringValue(teamUserResourceID(token, email))
+			}
+			resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+			return
+		}
 		resp.State.RemoveResource(ctx)
 		return
 	}
@@ -319,9 +342,43 @@ func (r *TeamUserResource) ImportState(ctx context.Context, req resource.ImportS
 	if email != "" {
 		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("email"), email)...)
 	}
-	// Defaults. Read replaces admin from the team listing.
+	// Defaults. Read replaces admin from the team listing. Password is never
+	// returned by the Teams API, so it remains null after import.
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("admin"), false)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instant"), false)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("password"), types.StringNull())...)
+}
+
+// useStateEvenWhenNullForUnknown copies the prior state value (including null)
+// into an unknown planned value when the resource already exists in state.
+// Unlike stringplanmodifier.UseStateForUnknown, which leaves PlanValue unknown
+// when StateValue is null, this modifier keeps user_id null in plans while a
+// team invitation is pending so plans settle with no diff.
+type useStateEvenWhenNullForUnknownModifier struct{}
+
+func useStateEvenWhenNullForUnknown() planmodifier.String {
+	return useStateEvenWhenNullForUnknownModifier{}
+}
+
+func (useStateEvenWhenNullForUnknownModifier) Description(_ context.Context) string {
+	return "Copies the prior state value (including null for a pending invitation) into an unknown planned value."
+}
+
+func (m useStateEvenWhenNullForUnknownModifier) MarkdownDescription(ctx context.Context) string {
+	return m.Description(ctx)
+}
+
+func (useStateEvenWhenNullForUnknownModifier) PlanModifyString(_ context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	if req.State.Raw.IsNull() {
+		return
+	}
+	if !req.PlanValue.IsUnknown() {
+		return
+	}
+	if req.ConfigValue.IsUnknown() {
+		return
+	}
+	resp.PlanValue = req.StateValue
 }
 
 // teamUserResourceID builds the canonical resource id. The second segment is the

@@ -217,7 +217,7 @@ resource "pushover_group_user" "ops_team" {
 
 ### `pushover_team_user`
 
-Adds a user to an existing [Pushover team](https://pushover.net/api/teams). `token` is the team API token from the team settings page (sensitive). It is separate from the provider application token. Destroying the resource removes the member. Refresh drops the resource when that user is no longer in the team listing.
+Adds a user to an existing [Pushover team](https://pushover.net/api/teams). `token` is the team API token from the team settings page (sensitive). It is separate from the provider application token. Destroying the resource removes the member (or revokes a pending invitation). Refresh treats a pending invitation (`user_id` not yet assigned) as present so plans settle, and drops a confirmed member (`user_id` assigned) when that user is no longer in the team listing.
 
 ```hcl
 resource "pushover_team_user" "ada" {
@@ -235,12 +235,12 @@ resource "pushover_team_user" "ada" {
 | `token`     | string | ✅        | Team API token (sensitive) |
 | `email`     | string | ✅        | Email address of the team member |
 | `name`      | string | –        | Full name |
-| `password`  | string | –        | Initial password (sensitive, stored in state) |
+| `password`  | string | –        | Initial password (sensitive; sent only on create, retained from config in state because `terraform-plugin-framework` v1.13 lacks `WriteOnly`, `null` when omitted or imported) |
 | `instant`   | bool   | –        | Include an Instant Login link in the welcome email (default: `false`) |
 | `admin`     | bool   | –        | Team administrator (default: `false`) |
 | `group`     | string | –        | Delivery group name (created if missing) |
-| `user_id`   | string | computed | User id from the team listing |
-| `id`        | string | computed | `team_token/user_id` (sensitive) |
+| `user_id`   | string | computed | User id from the team listing (`null` while invitation is pending) |
+| `id`        | string | computed | `team_token/user_id` or `team_token/email` while pending (sensitive) |
 
 Import with `team_token/user_id`. See [docs/resources/team_user.md](docs/resources/team_user.md).
 
