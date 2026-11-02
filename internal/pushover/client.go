@@ -735,6 +735,156 @@ func (c *Client) DisableGroupUser(ctx context.Context, groupKey, user, device st
 	return &resp, nil
 }
 
+// TeamResponse is the response from GET /teams.json.
+// See https://pushover.net/api/teams.
+type TeamResponse struct {
+	APIResponse
+	Name  string     `json:"name"`
+	Users []TeamUser `json:"users"`
+}
+
+// TeamUser is one member of a Pushover team, as returned by the team listing.
+type TeamUser struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Email         string `json:"email"`
+	Administrator bool   `json:"administrator"`
+}
+
+// AddTeamUserRequest adds a user to a Pushover team.
+// Token is the team API token, not an application API token.
+type AddTeamUserRequest struct {
+	Token    string
+	Email    string
+	Name     string
+	Password string
+	// Instant, when true, sends the welcome email with an Instant Login link.
+	Instant bool
+	// Admin, when true, adds the user as a team administrator.
+	Admin bool
+	// Group is a delivery group name. Pushover creates the group if it does not exist.
+	// Empty means the team's default delivery group.
+	Group string
+}
+
+// GetTeam returns the team name and current members.
+// GET https://api.pushover.net/1/teams.json?token=TEAM_TOKEN
+func (c *Client) GetTeam(ctx context.Context, token string) (*TeamResponse, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, fmt.Errorf("team token is required")
+	}
+	path := fmt.Sprintf("/teams.json?token=%s", url.QueryEscape(token))
+	var resp TeamResponse
+	if err := c.doGet(ctx, path, &resp); err != nil {
+		return nil, redactSecret(err, token)
+	}
+	return &resp, nil
+}
+
+// AddTeamUser adds a user to a team.
+// POST https://api.pushover.net/1/teams/add_user.json
+func (c *Client) AddTeamUser(ctx context.Context, req *AddTeamUserRequest) (*APIResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("add team user request is nil")
+	}
+	token := strings.TrimSpace(req.Token)
+	email := strings.TrimSpace(req.Email)
+	if token == "" {
+		return nil, fmt.Errorf("team token is required")
+	}
+	if email == "" {
+		return nil, fmt.Errorf("email is required")
+	}
+
+	params := url.Values{}
+	params.Set("token", token)
+	params.Set("email", email)
+	if name := strings.TrimSpace(req.Name); name != "" {
+		params.Set("name", name)
+	}
+	// Do not trim passwords; leading or trailing spaces can be significant.
+	if req.Password != "" {
+		params.Set("password", req.Password)
+	}
+	// Pushover treats the string "true" as the flag. Omit it otherwise.
+	if req.Instant {
+		params.Set("instant", "true")
+	}
+	if req.Admin {
+		params.Set("admin", "true")
+	}
+	if group := strings.TrimSpace(req.Group); group != "" {
+		params.Set("group", group)
+	}
+
+	var resp APIResponse
+	if err := c.doPost(ctx, "/teams/add_user.json", params, &resp); err != nil {
+		return nil, redactSecret(redactSecret(err, token), req.Password)
+	}
+	return &resp, nil
+}
+
+// RemoveTeamUser removes a team member without deleting their Pushover account.
+// POST https://api.pushover.net/1/teams/remove_user.json
+func (c *Client) RemoveTeamUser(ctx context.Context, token, email string) (*APIResponse, error) {
+	token = strings.TrimSpace(token)
+	email = strings.TrimSpace(email)
+	if token == "" {
+		return nil, fmt.Errorf("team token is required")
+	}
+	if email == "" {
+		return nil, fmt.Errorf("email is required")
+	}
+	params := url.Values{}
+	params.Set("token", token)
+	params.Set("email", email)
+	var resp APIResponse
+	if err := c.doPost(ctx, "/teams/remove_user.json", params, &resp); err != nil {
+		return nil, redactSecret(err, token)
+	}
+	return &resp, nil
+}
+
+// RevokeTeamInvitation revokes a pending invitation for someone who has not joined.
+// POST https://api.pushover.net/1/teams/revoke_invitation.json
+func (c *Client) RevokeTeamInvitation(ctx context.Context, token, email string) (*APIResponse, error) {
+	token = strings.TrimSpace(token)
+	email = strings.TrimSpace(email)
+	if token == "" {
+		return nil, fmt.Errorf("team token is required")
+	}
+	if email == "" {
+		return nil, fmt.Errorf("email is required")
+	}
+	params := url.Values{}
+	params.Set("token", token)
+	params.Set("email", email)
+	var resp APIResponse
+	if err := c.doPost(ctx, "/teams/revoke_invitation.json", params, &resp); err != nil {
+		return nil, redactSecret(err, token)
+	}
+	return &resp, nil
+}
+
+// redactSecret removes a credential from an error string. Transport errors from
+// net/http include the request URL, and team calls put the team token in that URL.
+// Short values are left alone so a short password cannot blank out unrelated words.
+func redactSecret(err error, secret string) error {
+	if err == nil || len(secret) < 8 {
+		return err
+	}
+	msg := err.Error()
+	redacted := strings.ReplaceAll(msg, secret, "[redacted]")
+	if escaped := url.QueryEscape(secret); escaped != secret {
+		redacted = strings.ReplaceAll(redacted, escaped, "[redacted]")
+	}
+	if redacted == msg {
+		return err
+	}
+	return fmt.Errorf("%s", redacted)
+}
+
 // SubscriptionMigrateRequest migrates an existing user key onto an application subscription.
 // See https://pushover.net/api/subscriptions (User Key Migration).
 type SubscriptionMigrateRequest struct {

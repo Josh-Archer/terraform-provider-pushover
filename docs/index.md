@@ -1,12 +1,12 @@
 ---
 page_title: "Pushover Provider"
 description: |-
-  Use the Pushover provider to send push notifications, update glance widgets, manage delivery groups, and migrate users onto application subscriptions via the Pushover API.
+  Use the Pushover provider to send push notifications, update glance widgets, manage delivery groups and team membership, and migrate users onto application subscriptions via the Pushover API.
 ---
 
 # Pushover Provider
 
-The **Pushover** provider integrates with the [Pushover](https://pushover.net) push notification service. It allows you to send notifications, manage delivery group membership, and migrate users onto application subscriptions directly from Terraform or OpenTofu.
+The **Pushover** provider integrates with the [Pushover](https://pushover.net) push notification service. It allows you to send notifications, manage delivery group membership, manage Pushover team members, and migrate users onto application subscriptions directly from Terraform or OpenTofu.
 
 ## Example Usage
 
@@ -36,6 +36,8 @@ terraform apply
 
 You will need a **Pushover application API token**. Create one by registering an application at [https://pushover.net/apps/build](https://pushover.net/apps/build).
 
+Team membership (`pushover_team_user`) uses a team API token on the resource. Create that token in the team settings at [https://pushover.net/teams](https://pushover.net/teams).
+
 ## Reliability
 
 The provider's HTTP client automatically retries **transient** Pushover API failures:
@@ -58,6 +60,7 @@ Non-retryable client errors (for example HTTP 4xx validation failures) fail imme
 - [pushover_message](resources/message.md) — Send a push notification.
 - [pushover_group](resources/group.md) — Manage the name of an existing Pushover delivery group.
 - [pushover_group_user](resources/group_user.md) — Add a user to a Pushover delivery group.
+- [pushover_team_user](resources/team_user.md) — Add or remove a user on a Pushover team.
 - [pushover_subscription_subscriber](resources/subscription_subscriber.md) — Migrate a user onto an application subscription.
 - [pushover_glances](resources/glances.md) — Update a smartwatch/lock-screen glance widget.
 

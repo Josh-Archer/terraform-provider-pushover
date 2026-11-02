@@ -2,13 +2,14 @@
 
 [![Tests](https://github.com/Josh-Archer/terraform-provider-pushover/actions/workflows/test.yml/badge.svg)](https://github.com/Josh-Archer/terraform-provider-pushover/actions/workflows/test.yml)
 
-The Pushover provider lets you send push notifications, manage delivery groups, and migrate users onto application subscriptions through [Pushover](https://pushover.net) directly from Terraform or OpenTofu.
+The Pushover provider lets you send push notifications, manage delivery groups, manage team membership, and migrate users onto application subscriptions through [Pushover](https://pushover.net) directly from Terraform or OpenTofu.
 
 ## Features
 
 - **Send notifications** (`pushover_message`) – Full Pushover message API including priority levels, sounds, HTML formatting, URL attachments, per-device targeting, TTL, and emergency messages with retry/expire/callback.
 - **Emergency receipt lifecycle** (`pushover_receipt`) – Track acknowledgement/expiry of priority-2 messages and cancel outstanding retries when the incident is resolved.
 - **Manage group membership** (`pushover_group_user`) – Add, remove, enable, or disable users in Pushover delivery groups.
+- **Manage team membership** (`pushover_team_user`) – Add or remove users on a Pushover team. Refresh reads the team listing and drops a member who was removed outside Terraform.
 - **Manage subscription subscribers** (`pushover_subscription_subscriber`) – Migrate an existing user key onto an application subscription and store the returned subscription user key.
 - **Manage delivery group names** (`pushover_group`) – Rename existing Pushover delivery groups and track their names.
 - **Update glance widgets** (`pushover_glances`) – Push short text or numeric data to smartwatch/lock-screen widgets via the Glances API.
@@ -211,6 +212,37 @@ resource "pushover_group_user" "ops_team" {
 | `memo`      | string | –        | Note about this member |
 | `disabled`  | bool   | –        | Disable notifications without removing (default: `false`) |
 | `id`        | string | computed | `group_key/user_key[/device]` |
+
+---
+
+### `pushover_team_user`
+
+Adds a user to an existing [Pushover team](https://pushover.net/api/teams). `token` is the team API token from the team settings page (sensitive). It is separate from the provider application token. Destroying the resource removes the member. Refresh drops the resource when that user is no longer in the team listing.
+
+```hcl
+resource "pushover_team_user" "ada" {
+  token = var.pushover_team_token
+  email = "ada@example.com"
+  name  = "Ada Lovelace"
+  group = "Ops"
+}
+```
+
+#### Attributes
+
+| Attribute   | Type   | Required | Description |
+|-------------|--------|----------|-------------|
+| `token`     | string | ✅        | Team API token (sensitive) |
+| `email`     | string | ✅        | Email address of the team member |
+| `name`      | string | –        | Full name |
+| `password`  | string | –        | Initial password (sensitive, stored in state) |
+| `instant`   | bool   | –        | Include an Instant Login link in the welcome email (default: `false`) |
+| `admin`     | bool   | –        | Team administrator (default: `false`) |
+| `group`     | string | –        | Delivery group name (created if missing) |
+| `user_id`   | string | computed | User id from the team listing |
+| `id`        | string | computed | `team_token/user_id` (sensitive) |
+
+Import with `team_token/user_id`. See [docs/resources/team_user.md](docs/resources/team_user.md).
 
 ---
 

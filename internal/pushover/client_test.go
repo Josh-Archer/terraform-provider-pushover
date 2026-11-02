@@ -1493,3 +1493,219 @@ func TestMigrateSubscriptionUser_RequiresSubscriptionAndUser(t *testing.T) {
 		t.Fatal("validation failures must not call the API")
 	}
 }
+
+// ----- Teams -----
+
+func TestGetTeam_Success(t *testing.T) {
+	const teamToken = "team-token-value"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/teams.json" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("token") != teamToken {
+			t.Errorf("team token was not sent as the query token")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"status":1,
+			"request":"req-team",
+			"name":"my team",
+			"users":[{
+				"id":"user-id-1",
+				"name":"Ada Lovelace",
+				"email":"ada@example.com",
+				"administrator":true,
+				"devices":[{"name":"iphone","os":"iOS","os_version":"26","enabled":true,"administratively_disabled":false}]
+			}]
+		}`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	resp, err := client.GetTeam(context.Background(), teamToken)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Name != "my team" || resp.Request != "req-team" {
+		t.Fatalf("name=%q request=%q", resp.Name, resp.Request)
+	}
+	if len(resp.Users) != 1 || resp.Users[0].ID != "user-id-1" || !resp.Users[0].Administrator {
+		t.Fatalf("users: %#v", resp.Users)
+	}
+	if resp.Users[0].Email != "ada@example.com" {
+		t.Fatalf("email: %s", resp.Users[0].Email)
+	}
+}
+
+func TestGetTeam_RequiresToken(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	if _, err := client.GetTeam(context.Background(), "  "); err == nil {
+		t.Fatal("expected error for blank team token")
+	}
+	if called {
+		t.Fatal("validation failure must not call the API")
+	}
+}
+
+func TestGetTeam_RedactsTokenFromTransportError(t *testing.T) {
+	const teamToken = "team-token-value"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	base := srv.URL
+	srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", base, srv.Client())
+	_, err := client.GetTeam(context.Background(), teamToken)
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	if strings.Contains(err.Error(), teamToken) {
+		t.Fatal("transport error includes the team token")
+	}
+}
+
+func TestAddTeamUser_Success(t *testing.T) {
+	const teamToken = "team-token-value"
+	const password = "not-a-real-password"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/teams/add_user.json" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+			return
+		}
+		if r.FormValue("token") != teamToken || r.FormValue("email") != "ada@example.com" {
+			t.Errorf("identity fields mismatch")
+		}
+		if r.FormValue("name") != "Ada Lovelace" || r.FormValue("password") != password {
+			t.Errorf("name or password mismatch")
+		}
+		if r.FormValue("instant") != "true" || r.FormValue("admin") != "true" || r.FormValue("group") != "Ops" {
+			t.Errorf("flag or group mismatch")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	resp, err := client.AddTeamUser(context.Background(), &pushover.AddTeamUserRequest{
+		Token:    teamToken,
+		Email:    "ada@example.com",
+		Name:     "Ada Lovelace",
+		Password: password,
+		Instant:  true,
+		Admin:    true,
+		Group:    "Ops",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Request != "test-request-id" {
+		t.Fatalf("request: %s", resp.Request)
+	}
+}
+
+func TestAddTeamUser_OmitsOptionalFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+			return
+		}
+		for _, key := range []string{"name", "password", "instant", "admin", "group"} {
+			if _, ok := r.Form[key]; ok {
+				t.Errorf("optional field %s was sent", key)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	if _, err := client.AddTeamUser(context.Background(), &pushover.AddTeamUserRequest{
+		Token: "team-token-value",
+		Email: "ada@example.com",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddTeamUser_RequiresTokenAndEmail(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	ctx := context.Background()
+	if _, err := client.AddTeamUser(ctx, nil); err == nil {
+		t.Fatal("expected error for nil request")
+	}
+	if _, err := client.AddTeamUser(ctx, &pushover.AddTeamUserRequest{Email: "ada@example.com"}); err == nil {
+		t.Fatal("expected error for missing token")
+	}
+	if _, err := client.AddTeamUser(ctx, &pushover.AddTeamUserRequest{Token: "team-token-value"}); err == nil {
+		t.Fatal("expected error for missing email")
+	}
+	if called {
+		t.Fatal("validation failures must not call the API")
+	}
+}
+
+func TestRemoveTeamUser_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/teams/remove_user.json" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+			return
+		}
+		if r.FormValue("token") != "team-token-value" || r.FormValue("email") != "ada@example.com" {
+			t.Errorf("identity fields mismatch")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(successResponse(nil)))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	if _, err := client.RemoveTeamUser(context.Background(), "team-token-value", "ada@example.com"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRevokeTeamInvitation_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/teams/revoke_invitation.json" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(errorResponse("team token is invalid")))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	_, err := client.RevokeTeamInvitation(context.Background(), "team-token-value", "ada@example.com")
+	if err == nil {
+		t.Fatal("expected API error")
+	}
+	if !strings.Contains(err.Error(), "team token is invalid") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(err.Error(), "team-token-value") {
+		t.Fatal("error includes the team token")
+	}
+}
