@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/Josh-Archer/terraform-provider-pushover/actions/workflows/test.yml/badge.svg)](https://github.com/Josh-Archer/terraform-provider-pushover/actions/workflows/test.yml)
 
-The Pushover provider lets you send push notifications, manage delivery groups, manage team membership, and migrate users onto application subscriptions through [Pushover](https://pushover.net) directly from Terraform or OpenTofu.
+The Pushover provider lets you send push notifications, manage delivery groups, manage team membership, migrate users onto application subscriptions, and manage pre-paid license credits through [Pushover](https://pushover.net) directly from Terraform or OpenTofu.
 
 ## Features
 
@@ -11,6 +11,7 @@ The Pushover provider lets you send push notifications, manage delivery groups, 
 - **Manage group membership** (`pushover_group_user`) – Add, remove, enable, or disable users in Pushover delivery groups.
 - **Manage team membership** (`pushover_team_user`) – Add or remove users on a Pushover team. Refresh reads the team listing and drops a member who was removed outside Terraform.
 - **Manage subscription subscribers** (`pushover_subscription_subscriber`) – Migrate an existing user key onto an application subscription and store the returned subscription user key.
+- **Manage license credits** (`pushover_licenses`, `pushover_license_assignment`) – Query remaining pre-paid license credits (read-only) and explicitly assign license credits to users or email addresses.
 - **Manage delivery group names** (`pushover_group`) – Rename existing Pushover delivery groups and track their names.
 - **Update glance widgets** (`pushover_glances`) – Push short text or numeric data to smartwatch/lock-screen widgets via the Glances API.
 - **List available sounds** (`pushover_sounds`) – Query all notification sounds available to your application.
@@ -312,6 +313,44 @@ resource "pushover_glances" "sales" {
 
 ---
 
+### `pushover_license_assignment`
+
+Permanently assigns one pre-paid [Pushover license credit](https://pushover.net/api/licensing) to a user account (`user_key`) or email address (`email`).
+
+> **Cost & Destroy Warning:** Creating or replacing this resource permanently consumes **1 non-refundable license credit**. Assignment never runs during `terraform plan` or `terraform refresh` (no network call is made on `Read`). Destroying this resource is a state-only no-op with a warning diagnostic and does not revoke the license or refund the credit.
+
+```hcl
+data "pushover_licenses" "pool" {}
+
+resource "pushover_license_assignment" "alice" {
+  user_key = "uYourUserKey"
+  os       = "iOS"
+
+  lifecycle {
+    precondition {
+      condition     = data.pushover_licenses.pool.credits > 0
+      error_message = "No Pushover license credits remaining on this application."
+    }
+  }
+}
+```
+
+#### Attributes
+
+| Attribute    | Type   | Required | Description |
+|--------------|--------|----------|-------------|
+| `user_key`   | string | –*       | Pushover user key of the recipient (forces replacement) |
+| `email`      | string | –*       | Email address of the recipient (forces replacement) |
+| `os`         | string | –        | Platform restriction: `Android`, `iOS`, or `Desktop` (forces replacement) |
+| `api_token`  | string | –        | Per-resource application API token override (sensitive; forces replacement) |
+| `credits`    | int    | computed | Remaining license credits immediately after assignment |
+| `request_id` | string | computed | Licensing API request ID |
+| `id`         | string | computed | `user:<user_key>[/<os>]` or `email:<email>[/<os>]` |
+
+\* Exactly one of `user_key` or `email` is required.
+
+---
+
 ## Data Sources
 
 ### `pushover_sounds`
@@ -355,6 +394,27 @@ output "recipient_devices" {
 | `is_group` | bool         | `true` if key belongs to a group |
 | `devices`  | list(string) | Registered device names |
 | `licenses` | list(string) | Active license types |
+
+---
+
+### `pushover_licenses`
+
+Retrieves the number of unassigned pre-paid license credits remaining on the application (`GET /1/licenses.json`). Read-only; never consumes credits.
+
+```hcl
+data "pushover_licenses" "current" {}
+
+output "remaining_license_credits" {
+  value = data.pushover_licenses.current.credits
+}
+```
+
+| Attribute    | Type   | Description |
+|--------------|--------|-------------|
+| `api_token`  | string | Optional: per-request application token override (sensitive) |
+| `credits`    | int    | Remaining unassigned license credits |
+| `request_id` | string | Licensing API request ID |
+| `id`         | string | Static identifier (`licenses`) |
 
 ---
 

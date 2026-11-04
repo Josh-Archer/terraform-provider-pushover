@@ -164,6 +164,27 @@ type LimitsResponse struct {
 	Reset     int64 `json:"reset"`
 }
 
+// LicensesResponse is the response from querying or assigning application license credits.
+// See https://pushover.net/api/licensing.
+type LicensesResponse struct {
+	APIResponse
+	Credits int `json:"credits"`
+}
+
+// LicenseAssignRequest holds fields for assigning a pre-paid Pushover license credit.
+// Exactly one of User or Email must be set.
+// OS is optional ("Android", "iOS", or "Desktop").
+type LicenseAssignRequest struct {
+	// Token overrides the client application token when non-empty.
+	Token string
+	// User is the recipient's Pushover user key (mutually exclusive with Email).
+	User string
+	// Email is the recipient's email address (mutually exclusive with User).
+	Email string
+	// OS optionally restricts the license to "Android", "iOS", or "Desktop".
+	OS string
+}
+
 // Sound represents a single Pushover sound.
 type Sound struct {
 	Key  string
@@ -987,8 +1008,84 @@ func (c *Client) UpdateGlance(ctx context.Context, req *GlanceRequest) (*APIResp
 	return &resp, nil
 }
 
+// GetLicenses retrieves the number of remaining license credits for an application.
+// GET https://api.pushover.net/1/licenses.json?token=YOUR_API_TOKEN
+func (c *Client) GetLicenses(ctx context.Context, token ...string) (*LicensesResponse, error) {
+	tok := strings.TrimSpace(c.token)
+	if len(token) > 0 && strings.TrimSpace(token[0]) != "" {
+		tok = strings.TrimSpace(token[0])
+	}
+	if tok == "" {
+		return nil, fmt.Errorf("application token is required")
+	}
+	path := fmt.Sprintf("/licenses.json?token=%s", url.QueryEscape(tok))
+	var resp LicensesResponse
+	if err := c.doGet(ctx, path, &resp); err != nil {
+		return nil, redactSecret(err, tok)
+	}
+	return &resp, nil
+}
+
+// AssignLicense permanently assigns one pre-paid license credit to a Pushover user or email.
+// POST https://api.pushover.net/1/licenses/assign.json
+//
+// Per Pushover's Licensing API guidance, license assignment requests are never
+// automatically retried so transient failures cannot consume multiple credits.
+func (c *Client) AssignLicense(ctx context.Context, req *LicenseAssignRequest) (*LicensesResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("license assign request is nil")
+	}
+	tok := strings.TrimSpace(req.Token)
+	if tok == "" {
+		tok = strings.TrimSpace(c.token)
+	}
+	if tok == "" {
+		return nil, fmt.Errorf("application token is required")
+	}
+
+	user := strings.TrimSpace(req.User)
+	email := strings.TrimSpace(req.Email)
+	if user == "" && email == "" {
+		return nil, fmt.Errorf("either user or email is required")
+	}
+	if user != "" && email != "" {
+		return nil, fmt.Errorf("cannot specify both user and email")
+	}
+
+	osVal := strings.TrimSpace(req.OS)
+	if osVal != "" {
+		switch osVal {
+		case "Android", "iOS", "Desktop":
+		default:
+			return nil, fmt.Errorf("invalid os %q: must be Android, iOS, or Desktop", osVal)
+		}
+	}
+
+	params := url.Values{}
+	params.Set("token", tok)
+	if user != "" {
+		params.Set("user", user)
+	}
+	if email != "" {
+		params.Set("email", email)
+	}
+	if osVal != "" {
+		params.Set("os", osVal)
+	}
+
+	var resp LicensesResponse
+	if err := c.doPostNoRetry(ctx, "/licenses/assign.json", params, &resp); err != nil {
+		return nil, redactSecret(err, tok)
+	}
+	return &resp, nil
+}
+
 func (c *Client) doPost(ctx context.Context, path string, params url.Values, out interface{}) error {
 	return c.doWithRetry(ctx, http.MethodPost, path, params.Encode(), "application/x-www-form-urlencoded", out)
+}
+
+func (c *Client) doPostNoRetry(ctx context.Context, path string, params url.Values, out interface{}) error {
+	return c.doWithMaxRetries(ctx, 0, http.MethodPost, path, params.Encode(), "application/x-www-form-urlencoded", out)
 }
 
 func (c *Client) doGet(ctx context.Context, path string, out interface{}) error {
@@ -1017,7 +1114,10 @@ func (c *Client) maxDelayOrDefault() time.Duration {
 }
 
 func (c *Client) doWithRetry(ctx context.Context, method, path, body, contentType string, out interface{}) error {
-	maxRetries := c.maxRetriesOrDefault()
+	return c.doWithMaxRetries(ctx, c.maxRetriesOrDefault(), method, path, body, contentType, out)
+}
+
+func (c *Client) doWithMaxRetries(ctx context.Context, maxRetries int, method, path, body, contentType string, out interface{}) error {
 	var nextDelay time.Duration
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -1065,15 +1165,49 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, body, contentTyp
 	return fmt.Errorf("pushover API request failed")
 }
 
+// parseAPIStatusAndErrors extracts the Pushover status field and any error messages
+// whether "errors" is returned as a JSON array (["msg"]) or an attribute map
+// ({"token":["is out of available license credits"]}).
+func parseAPIStatusAndErrors(body []byte) (int, []string, bool) {
+	var raw struct {
+		Status *int            `json:"status"`
+		Errors json.RawMessage `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return 0, nil, false
+	}
+	status := 0
+	if raw.Status != nil {
+		status = *raw.Status
+	}
+	var errs []string
+	if len(raw.Errors) > 0 {
+		var list []string
+		if err := json.Unmarshal(raw.Errors, &list); err == nil {
+			errs = list
+		} else {
+			var obj map[string][]string
+			if err := json.Unmarshal(raw.Errors, &obj); err == nil && len(obj) > 0 {
+				keys := make([]string, 0, len(obj))
+				for k := range obj {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				for _, k := range keys {
+					for _, msg := range obj[k] {
+						errs = append(errs, fmt.Sprintf("%s: %s", k, msg))
+					}
+				}
+			}
+		}
+	}
+	return status, errs, raw.Status != nil || len(errs) > 0
+}
+
 func unmarshalResponse(statusCode int, body []byte, out interface{}) error {
 	if statusCode < 200 || statusCode >= 300 {
-		type statusChecker struct {
-			Status int      `json:"status"`
-			Errors []string `json:"errors"`
-		}
-		var sc statusChecker
-		if err := json.Unmarshal(body, &sc); err == nil && len(sc.Errors) > 0 {
-			return fmt.Errorf("pushover API error: %s", strings.Join(sc.Errors, "; "))
+		if _, errs, _ := parseAPIStatusAndErrors(body); len(errs) > 0 {
+			return fmt.Errorf("pushover API error: %s", strings.Join(errs, "; "))
 		}
 		trimmed := strings.TrimSpace(string(body))
 		if len(trimmed) > 200 {
@@ -1085,21 +1219,19 @@ func unmarshalResponse(statusCode int, body []byte, out interface{}) error {
 		return fmt.Errorf("pushover API returned HTTP %d: %s", statusCode, trimmed)
 	}
 
+	status, errs, _ := parseAPIStatusAndErrors(body)
 	if err := json.Unmarshal(body, out); err != nil {
+		if len(errs) > 0 {
+			return fmt.Errorf("pushover API error: %s", strings.Join(errs, "; "))
+		}
 		return fmt.Errorf("decoding response: %w", err)
 	}
 
-	type statusChecker struct {
-		Status int      `json:"status"`
-		Errors []string `json:"errors"`
-	}
-	var sc statusChecker
-	_ = json.Unmarshal(body, &sc)
-	if sc.Status != 1 {
-		if len(sc.Errors) > 0 {
-			return fmt.Errorf("pushover API error: %s", strings.Join(sc.Errors, "; "))
+	if status != 1 {
+		if len(errs) > 0 {
+			return fmt.Errorf("pushover API error: %s", strings.Join(errs, "; "))
 		}
-		return fmt.Errorf("pushover API error (status %d)", sc.Status)
+		return fmt.Errorf("pushover API error (status %d)", status)
 	}
 
 	return nil

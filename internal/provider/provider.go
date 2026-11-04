@@ -48,7 +48,7 @@ func (p *PushoverProvider) Metadata(_ context.Context, _ provider.MetadataReques
 func (p *PushoverProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "The Pushover provider allows you to send push notifications, manage delivery groups, " +
-			"manage team membership, and migrate users onto application subscriptions via [Pushover](https://pushover.net). " +
+			"manage team membership, migrate users onto application subscriptions, and manage pre-paid license credits via [Pushover](https://pushover.net). " +
 			"Configure the provider with your application API token to get started.",
 		Attributes: map[string]schema.Attribute{
 			"api_token": schema.StringAttribute{
@@ -103,6 +103,7 @@ func (p *PushoverProvider) Resources(_ context.Context) []func() resource.Resour
 		NewGroupUserResource,
 		NewTeamUserResource,
 		NewSubscriptionSubscriberResource,
+		NewLicenseAssignmentResource,
 		NewReceiptResource,
 		NewGlancesResource,
 	}
@@ -114,6 +115,7 @@ func (p *PushoverProvider) DataSources(_ context.Context) []func() datasource.Da
 		NewValidateUserDataSource,
 		NewGroupDataSource,
 		NewLimitsDataSource,
+		NewLicensesDataSource,
 	}
 }
 
