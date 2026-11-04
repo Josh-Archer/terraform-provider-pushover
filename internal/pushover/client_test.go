@@ -1709,3 +1709,232 @@ func TestRevokeTeamInvitation_APIError(t *testing.T) {
 		t.Fatal("error includes the team token")
 	}
 }
+
+// ----- Licensing -----
+
+func TestGetLicenses_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/licenses.json" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("token") != "app-token" {
+			t.Errorf("unexpected token: %s", r.URL.Query().Get("token"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":1,"credits":5,"request":"142f8378-fd19-4cb7-9ea2-b18b15a07431"}`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	resp, err := client.GetLicenses(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Credits != 5 {
+		t.Errorf("expected 5 credits, got %d", resp.Credits)
+	}
+	if resp.Request != "142f8378-fd19-4cb7-9ea2-b18b15a07431" {
+		t.Errorf("unexpected request id: %s", resp.Request)
+	}
+}
+
+func TestGetLicenses_TokenOverride(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("token") != "override-token" {
+			t.Errorf("expected override-token, got %s", r.URL.Query().Get("token"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":1,"credits":12,"request":"req-lic-override"}`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("default-token", srv.URL, srv.Client())
+	resp, err := client.GetLicenses(context.Background(), "override-token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Credits != 12 {
+		t.Errorf("expected 12 credits, got %d", resp.Credits)
+	}
+}
+
+func TestGetLicenses_RequiresToken(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("", srv.URL, srv.Client())
+	if _, err := client.GetLicenses(context.Background()); err == nil {
+		t.Fatal("expected error for empty token")
+	}
+	if called {
+		t.Fatal("validation failure must not call the API")
+	}
+}
+
+func TestAssignLicense_SuccessByUser(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/licenses/assign.json" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+			return
+		}
+		if r.FormValue("token") != "app-token" {
+			t.Errorf("unexpected token: %s", r.FormValue("token"))
+		}
+		if r.FormValue("user") != "uQiRzpo4DXghDmr9QzzfQu27cmVRsG" {
+			t.Errorf("unexpected user: %s", r.FormValue("user"))
+		}
+		if _, ok := r.PostForm["email"]; ok {
+			t.Errorf("email should be omitted, got %q", r.FormValue("email"))
+		}
+		if r.FormValue("os") != "iOS" {
+			t.Errorf("unexpected os: %s", r.FormValue("os"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":1,"credits":4,"request":"4f2a071d-fc2c-4d94-9cf2-68c069a599b4"}`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	resp, err := client.AssignLicense(context.Background(), &pushover.LicenseAssignRequest{
+		User: "uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+		OS:   "iOS",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Credits != 4 {
+		t.Errorf("expected 4 credits, got %d", resp.Credits)
+	}
+	if resp.Request != "4f2a071d-fc2c-4d94-9cf2-68c069a599b4" {
+		t.Errorf("unexpected request id: %s", resp.Request)
+	}
+}
+
+func TestAssignLicense_SuccessByEmailWithoutOS(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+			return
+		}
+		if r.FormValue("token") != "override-token" {
+			t.Errorf("unexpected token: %s", r.FormValue("token"))
+		}
+		if r.FormValue("email") != "ada@example.com" {
+			t.Errorf("unexpected email: %s", r.FormValue("email"))
+		}
+		if _, ok := r.PostForm["user"]; ok {
+			t.Errorf("user should be omitted")
+		}
+		if _, ok := r.PostForm["os"]; ok {
+			t.Errorf("os should be omitted")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":1,"credits":0,"request":"req-assign-email"}`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	resp, err := client.AssignLicense(context.Background(), &pushover.LicenseAssignRequest{
+		Token: "override-token",
+		Email: "ada@example.com",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Credits != 0 {
+		t.Errorf("expected 0 credits, got %d", resp.Credits)
+	}
+}
+
+func TestAssignLicense_OutOfCreditsObjectError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"status":0,"request":"55f7df29-e2f3-4333-aeef-336334fafcee","errors":{"token":["is out of available license credits"]}}`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	_, err := client.AssignLicense(context.Background(), &pushover.LicenseAssignRequest{
+		User: "uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+	})
+	if err == nil {
+		t.Fatal("expected error when out of credits")
+	}
+	if !strings.Contains(err.Error(), "is out of available license credits") {
+		t.Errorf("expected out of credits message, got %v", err)
+	}
+}
+
+func TestAssignLicense_NeverRetriesOnServerError(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"status":0,"errors":["internal error"]}`))
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	client.SetRetryPolicy(3, time.Millisecond, 5*time.Millisecond)
+	_, err := client.AssignLicense(context.Background(), &pushover.LicenseAssignRequest{
+		User: "uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+	})
+	if err == nil {
+		t.Fatal("expected error on 500")
+	}
+	if attempts != 1 {
+		t.Fatalf("expected AssignLicense to never retry, got %d attempts", attempts)
+	}
+}
+
+func TestAssignLicense_ValidationErrorsDoNotCallAPI(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer srv.Close()
+
+	client := pushover.NewClientWithBase("app-token", srv.URL, srv.Client())
+	ctx := context.Background()
+
+	if _, err := client.AssignLicense(ctx, nil); err == nil {
+		t.Fatal("expected error for nil request")
+	}
+	if _, err := client.AssignLicense(ctx, &pushover.LicenseAssignRequest{}); err == nil {
+		t.Fatal("expected error when neither user nor email is set")
+	}
+	if _, err := client.AssignLicense(ctx, &pushover.LicenseAssignRequest{
+		User:  "uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+		Email: "ada@example.com",
+	}); err == nil {
+		t.Fatal("expected error when both user and email are set")
+	}
+	if _, err := client.AssignLicense(ctx, &pushover.LicenseAssignRequest{
+		User: "uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+		OS:   "Windows",
+	}); err == nil {
+		t.Fatal("expected error for invalid os")
+	}
+	noTokenClient := pushover.NewClientWithBase("", srv.URL, srv.Client())
+	if _, err := noTokenClient.AssignLicense(ctx, &pushover.LicenseAssignRequest{
+		User: "uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+	}); err == nil {
+		t.Fatal("expected error for missing token")
+	}
+	if called {
+		t.Fatal("validation failures must not call the API")
+	}
+}

@@ -1,12 +1,12 @@
 ---
 page_title: "Pushover Provider"
 description: |-
-  Use the Pushover provider to send push notifications, update glance widgets, manage delivery groups and team membership, and migrate users onto application subscriptions via the Pushover API.
+  Use the Pushover provider to send push notifications, update glance widgets, manage delivery groups and team membership, migrate users onto application subscriptions, and manage pre-paid license credits via the Pushover API.
 ---
 
 # Pushover Provider
 
-The **Pushover** provider integrates with the [Pushover](https://pushover.net) push notification service. It allows you to send notifications, manage delivery group membership, manage Pushover team members, and migrate users onto application subscriptions directly from Terraform or OpenTofu.
+The **Pushover** provider integrates with the [Pushover](https://pushover.net) push notification service. It allows you to send notifications, manage delivery group membership, manage Pushover team members, migrate users onto application subscriptions, and query or assign pre-paid license credits directly from Terraform or OpenTofu.
 
 ## Example Usage
 
@@ -62,9 +62,12 @@ Non-retryable client errors (for example HTTP 4xx validation failures) fail imme
 - [pushover_group_user](resources/group_user.md) — Add a user to a Pushover delivery group.
 - [pushover_team_user](resources/team_user.md) — Add or remove a user on a Pushover team.
 - [pushover_subscription_subscriber](resources/subscription_subscriber.md) — Migrate a user onto an application subscription.
+- [pushover_license_assignment](resources/license_assignment.md) — Assign a pre-paid license credit to a user or email.
 - [pushover_glances](resources/glances.md) — Update a smartwatch/lock-screen glance widget.
 
 ## Data Sources
 
 - [pushover_sounds](data-sources/sounds.md) — List available notification sounds.
 - [pushover_validate_user](data-sources/validate_user.md) — Validate a user or group key.
+- [pushover_limits](data-sources/limits.md) — Query monthly message quota and remaining limit.
+- [pushover_licenses](data-sources/licenses.md) — Query remaining pre-paid license credits.
