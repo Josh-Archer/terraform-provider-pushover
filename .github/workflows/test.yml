@@ -5,6 +5,7 @@ on:
     branches: ["main"]
   push:
     branches: ["main"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -77,9 +78,16 @@ jobs:
     needs: unit-tests
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'uecb-shared' }}
     timeout-minutes: 15
-    # Only run acceptance tests when secrets are available (i.e., not from a fork PR).
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    # Acceptance tests can spend Pushover license credits, so they only run on a
+    # manual workflow_dispatch or when the TF_ACC repository variable is "1", and
+    # never for fork PRs (no secrets). Paid tests additionally require the
+    # PUSHOVER_ALLOW_PAID_TESTS repository variable to be "1".
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (vars.TF_ACC == '1' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository))
     env:
+      TF_ACC: "1"
+      PUSHOVER_ALLOW_PAID_TESTS: ${{ vars.PUSHOVER_ALLOW_PAID_TESTS }}
       PUSHOVER_API_TOKEN: ${{ secrets.PUSHOVER_API_TOKEN }}
       PUSHOVER_USER_KEY:  ${{ secrets.PUSHOVER_USER_KEY }}
     steps:

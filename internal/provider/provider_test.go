@@ -31,6 +31,16 @@ t.Skip("PUSHOVER_API_TOKEN not set; skipping acceptance test")
 }
 }
 
+// skipUnlessPaidTestsAllowed skips tests that exercise paid Pushover
+// operations (such as assigning license credits) unless explicitly opted in
+// with PUSHOVER_ALLOW_PAID_TESTS=1.
+func skipUnlessPaidTestsAllowed(t *testing.T) {
+t.Helper()
+if os.Getenv("PUSHOVER_ALLOW_PAID_TESTS") != "1" {
+t.Skip("PUSHOVER_ALLOW_PAID_TESTS != 1; skipping test that can spend license credits")
+}
+}
+
 // ----- Provider configuration -----
 
 func TestProvider_ValidConfig(t *testing.T) {
