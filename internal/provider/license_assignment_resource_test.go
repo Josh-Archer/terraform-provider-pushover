@@ -97,6 +97,7 @@ resource "pushover_license_assignment" "bad_email" {
 }
 
 func TestLicenseAssignmentResource_ApplyRefreshAndReplace(t *testing.T) {
+	skipUnlessPaidTestsAllowed(t)
 	var totalCalls int32
 	var mu sync.Mutex
 	var osValues []string
