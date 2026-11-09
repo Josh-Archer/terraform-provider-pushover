@@ -443,7 +443,7 @@ goreleaser build --snapshot --clean
 
 ## Publishing
 
-Releases are published automatically by the `release.yml` GitHub Actions workflow when a tag matching `v*` is pushed. You can also run the workflow manually (`workflow_dispatch`) by providing a specific tag via `release_tag` (for example `v0.0.1`).
+Releases are published automatically by the `release.yml` GitHub Actions workflow when a tag matching `v*` is pushed. Every merge to `main` whose CI (`Tests`) passes is tagged and released automatically by `.github/workflows/auto-release.yml` (next patch version, or next minor for a `type!:` / `BREAKING CHANGE` commit while the major version is 0). Merges that only touch docs, Markdown, `.github/`, `examples/` or Go tests are not released; see `scripts/next-release-version.sh`. You can also run the workflow manually (`workflow_dispatch`) by providing a specific tag via `release_tag` (for example `v0.0.1`).
 
 The release assets are generated in Terraform/OpenTofu registry-compatible format (including `terraform-registry-manifest.json`, checksums, and detached checksum signature).
 
