@@ -35,7 +35,7 @@ jobs:
     name: Unit Tests
     needs: build
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'uecb-shared' }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -52,9 +52,11 @@ jobs:
           terraform_wrapper: false
 
       - name: Run unit tests
-        run: go test ./... -v -count=1 -timeout=120s
-        # Acceptance tests are guarded by skipIfNoToken; they won't run here
-        # unless PUSHOVER_API_TOKEN is provided as a repository secret.
+        run: go test ./... -v -count=1 -timeout=300s
+        # Acceptance tests are guarded by skipIfNoToken and resource.Test
+        # (TF_ACC is unset). Lifecycle contract tests use httptest and run here
+        # against the Terraform installed above. The lifecycle-contract job
+        # repeats them on Terraform and OpenTofu.
 
   lint:
     name: Lint
@@ -72,6 +74,70 @@ jobs:
 
       - name: Run go vet
         run: go vet ./...
+
+  lifecycle-contract:
+    name: Lifecycle Contract (${{ matrix.engine }})
+    needs: build
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'uecb-shared' }}
+    timeout-minutes: 15
+    # httptest doubles only. These tests do not call Pushover and do not need
+    # TF_ACC or secrets, so they run on every pull request. Live acceptance
+    # stays on the gated acceptance-tests job.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: terraform
+            terraform_version: "1.10.*"
+          - engine: tofu
+            tofu_version: "1.11.2"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Terraform
+        if: matrix.engine == 'terraform'
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: ${{ matrix.terraform_version }}
+          terraform_wrapper: false
+
+      - name: Install OpenTofu
+        if: matrix.engine == 'tofu'
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ matrix.tofu_version }}
+          tofu_wrapper: false
+
+      - name: Run lifecycle contract tests
+        env:
+          ENGINE: ${{ matrix.engine }}
+        run: |
+          set -euo pipefail
+          if [ "${ENGINE}" = "tofu" ]; then
+            bin="$(command -v tofu)"
+            # OpenTofu 1.11 rejects the legacy "-" namespace on registry.terraform.io.
+            # The test also sets this when the binary name starts with tofu.
+            export TF_ACC_PROVIDER_HOST=registry.opentofu.org
+          else
+            bin="$(command -v terraform)"
+          fi
+          case "${bin}" in
+            /*) ;;
+            *)
+              echo "engine binary must be an absolute path, got '${bin}'"
+              exit 1
+              ;;
+          esac
+          echo "Using ${bin}"
+          "${bin}" version
+          TF_ACC_TERRAFORM_PATH="${bin}" \
+            go test ./internal/provider -count=1 -timeout 300s -run '^TestLifecycleContract'
 
   acceptance-tests:
     name: Acceptance Tests
@@ -107,4 +173,4 @@ jobs:
 
       - name: Run acceptance tests
         if: env.PUSHOVER_API_TOKEN != ''
-        run: go test ./... -v -count=1 -timeout=120s
+        run: go test ./... -v -count=1 -timeout=300s
