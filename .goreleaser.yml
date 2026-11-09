@@ -64,6 +64,10 @@ signs:
       - "${artifact}"
 
 release:
+  # Release Please opens a draft release without a git tag. release.yml creates
+  # the tag, then GoReleaser publishes that draft and keeps its notes.
+  mode: keep-existing
+  use_existing_draft: true
   replace_existing_artifacts: true
   extra_files:
     - glob: "terraform-registry-manifest.json"
@@ -75,11 +79,5 @@ release:
   prerelease: auto
 
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
-      - Merge pull request
-      - Merge branch
+  # Release Please writes CHANGELOG.md and the GitHub release notes.
+  disable: true

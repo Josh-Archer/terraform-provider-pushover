@@ -26,18 +26,54 @@ jobs:
 
       - name: Checkout requested tag for manual run
         if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
         run: |
-          release_tag="${{ github.event.inputs.release_tag }}"
-          if [ -z "$release_tag" ]; then
+          set -euo pipefail
+          if [ -z "${RELEASE_TAG}" ]; then
             echo "workflow_dispatch input release_tag is required."
             exit 1
           fi
-          if ! git rev-parse "$release_tag" >/dev/null 2>&1; then
-            echo "Tag '$release_tag' does not exist in this repository."
+          if git rev-parse "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Manually triggered release from existing tag: ${RELEASE_TAG}"
+            git checkout --detach "${RELEASE_TAG}"
+            exit 0
+          fi
+
+          # Release Please opens a draft GitHub release and does not create the
+          # git tag. Recover the draft target and create the missing ref so
+          # GoReleaser can publish that draft. An existing tag takes the path
+          # above and is never recreated.
+          echo "Tag '${RELEASE_TAG}' is not in this clone. Looking up a draft release."
+          semver_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if [[ ! "${RELEASE_TAG}" =~ ${semver_pattern} ]]; then
+            echo "Refusing to create '${RELEASE_TAG}': it is not a semver tag and it does not already exist."
             exit 1
           fi
-          echo "Manually triggered release from tag: $release_tag"
-          git checkout --detach "$release_tag"
+
+          release_record="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
+            --jq ".[] | select(.tag_name == \"${RELEASE_TAG}\") | [.draft, .target_commitish] | @tsv")"
+          if [ -z "${release_record}" ]; then
+            echo "Tag '${RELEASE_TAG}' does not exist and no matching draft release exists."
+            exit 1
+          fi
+          IFS=$'\t' read -r is_draft target_commitish <<< "${release_record}"
+          if [ "${is_draft}" != "true" ]; then
+            echo "Refusing to create ${RELEASE_TAG} for a non-draft release."
+            exit 1
+          fi
+          target_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${target_commitish}" --jq '.sha')"
+          if [[ ! "${target_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Unable to resolve a full commit SHA for ${RELEASE_TAG}: ${target_sha}"
+            exit 1
+          fi
+          gh api --silent --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/tags/${RELEASE_TAG}" \
+            -f "sha=${target_sha}"
+          echo "Created ${RELEASE_TAG} at ${target_sha} from its draft release target."
+          git fetch origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          git checkout --detach "${RELEASE_TAG}"
 
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5

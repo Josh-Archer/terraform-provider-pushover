@@ -431,19 +431,37 @@ output "remaining_license_credits" {
 # Build
 go build ./...
 
-# Run unit tests (no API key required)
-go test ./...
+# Unit tests, including the lifecycle contract against Terraform on PATH.
+# No API key and no TF_ACC.
+go test ./... -count=1 -timeout 300s
 
-# Run acceptance tests (requires real credentials)
-PUSHOVER_API_TOKEN=your_token PUSHOVER_USER_KEY=your_key go test ./... -run Acc
+# Lifecycle contract only. The path must be absolute. OpenTofu 1.11 is
+# selected by a binary whose name starts with "tofu"; the suite then sets
+# TF_ACC_PROVIDER_HOST=registry.opentofu.org. These tests use httptest.
+TF_ACC_TERRAFORM_PATH="$(command -v terraform)" \
+  go test ./internal/provider -count=1 -timeout 300s -run '^TestLifecycleContract'
+TF_ACC_TERRAFORM_PATH="$(command -v tofu)" \
+  go test ./internal/provider -count=1 -timeout 300s -run '^TestLifecycleContract'
+
+# Live acceptance tests. TF_ACC=1 makes resource.Test run. Without a token,
+# skipIfNoToken skips them. Paid license tests also need
+# PUSHOVER_ALLOW_PAID_TESTS=1. See docs/lifecycle-contract.md.
+TF_ACC=1 PUSHOVER_API_TOKEN=your_token PUSHOVER_USER_KEY=your_key \
+  go test ./... -count=1 -timeout 300s
 
 # Build release binaries
 goreleaser build --snapshot --clean
 ```
 
+`make test` runs the unit suite. `make test-lifecycle-terraform` and `make test-lifecycle-tofu` run the lifecycle filter. `make testacc` is the live acceptance command above.
+
 ## Publishing
 
-Releases are published automatically by the `release.yml` GitHub Actions workflow when a tag matching `v*` is pushed. Every merge to `main` whose CI (`Tests`) passes is tagged and released automatically by `.github/workflows/auto-release.yml` (next patch version, or next minor for a `type!:` / `BREAKING CHANGE` commit while the major version is 0). Merges that only touch docs, Markdown, `.github/`, `examples/` or Go tests are not released; see `scripts/next-release-version.sh`. You can also run the workflow manually (`workflow_dispatch`) by providing a specific tag via `release_tag` (for example `v0.0.1`).
+[Release Please](.github/workflows/release-please.yml) opens release pull requests and maintains [CHANGELOG.md](CHANGELOG.md) from conventional commits. The manifest is currently `0.0.1`. Before 1.0.0, breaking changes bump the minor version and features bump the minor version. `ci` commits are omitted from the changelog. Release Please creates a draft GitHub release and does not create the git tag.
+
+Every merge to `main` whose CI (`Tests`) passes is tagged and released automatically by `.github/workflows/auto-release.yml` (next patch version, or next minor for a `type!:` / `BREAKING CHANGE` commit while the major version is 0). Merges that only touch docs, Markdown, `.github/`, `examples/` or Go tests are not released; see `scripts/next-release-version.sh`.
+
+The `release.yml` workflow still publishes when a `v*` tag is pushed, including tags created by auto-release. A manual run (`workflow_dispatch`) takes `release_tag`. If that tag is missing, the workflow creates it from the matching draft release's commit, then checks it out. GoReleaser publishes that draft and leaves the Release Please notes in place. GoReleaser changelog generation is disabled, so a tag push that has no draft release does not get generated notes. You can also provide a specific tag such as `v0.0.1` when running the workflow manually.
 
 The release assets are generated in Terraform/OpenTofu registry-compatible format (including `terraform-registry-manifest.json`, checksums, and detached checksum signature).
 
