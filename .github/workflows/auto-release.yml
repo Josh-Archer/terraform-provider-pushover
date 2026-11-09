@@ -1,0 +1,88 @@
+name: Auto release
+
+# Every merge to main whose CI passes is released: this tags the tip of main (scripts/next-release-version.sh) and starts release.yml on that tag. GoReleaser takes the version from the tag, so no files change.
+# A tag pushed with GITHUB_TOKEN does not trigger other workflows, so
+# release.yml is started explicitly. Docs, CI and test-only
+# merges are not released.
+
+on:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag and release
+    # Only the main-branch CI runs of this repository, never pull requests or
+    # forks.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Work out the next version
+        id: version
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          version="$(scripts/next-release-version.sh "${SHA}")"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          if [[ -z "${version}" ]]; then
+            echo "No release needed for ${SHA}." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Tag
+        if: steps.version.outputs.version != ''
+        id: tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          # Only the tip of main is released: if main moved on, the newer
+          # commit's run releases this change too.
+          git fetch --quiet origin main
+          if [[ "$(git rev-parse origin/main)" != "${SHA}" ]]; then
+            echo "main moved past ${SHA}; its newer commit will be released." >> "$GITHUB_STEP_SUMMARY"
+            echo "tagged=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+          summary="$(git log --format='%s' "${base}..${SHA}" | head -n 20)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${VERSION}" HEAD -m "${VERSION}" -m "${summary}"
+          git push origin "refs/tags/${VERSION}"
+          echo "tagged=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Tagged $(git rev-parse --short HEAD) as ${VERSION}." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start the release
+        if: steps.tag.outputs.tagged != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.tag.outputs.tagged }}
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml --repo "${GITHUB_REPOSITORY}" --ref "${VERSION}" \
+            -f release_tag="${VERSION}"
+          echo "Started release.yml for ${VERSION}." >> "$GITHUB_STEP_SUMMARY"
