@@ -46,7 +46,7 @@ fi
 
 IFS=. read -r major minor patch <<<"${base_tag#v}"
 if git log --format='%s%n%b' "${base_commit}..${commit}" \
-  | grep -qE '^[a-z]+(\([^)]*\))?!:|BREAKING[ -]CHANGE'; then
+  | grep -qE '^[a-z]+(\([^)]*\))?!:|^BREAKING[ -]CHANGE:'; then
   if [[ "${major}" == 0 ]]; then
     minor=$((minor + 1)); patch=0
   else
