@@ -19,7 +19,7 @@ set -euo pipefail
 
 commit="$(git rev-parse --verify "${1:-HEAD}^{commit}")"
 
-base_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
+base_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | awk 'NR == 1' || true)"
 if [[ -z "${base_tag}" ]]; then
   echo "no vX.Y.Z tag to start from" >&2
   exit 1
@@ -45,8 +45,10 @@ if [[ -z "${changed}" ]]; then
 fi
 
 IFS=. read -r major minor patch <<<"${base_tag#v}"
-if git log --format='%s%n%b' "${base_commit}..${commit}" \
-  | grep -qE '^[a-z]+(\([^)]*\))?!:|^BREAKING[ -]CHANGE:'; then
+# Read the whole log first: under pipefail, grep -q closing the pipe early
+# would kill git log with SIGPIPE and turn a match into a miss.
+messages="$(git log --format='%s%n%b' "${base_commit}..${commit}")"
+if grep -qE '^[a-z]+(\([^)]*\))?!:|^BREAKING[ -]CHANGE:' <<<"${messages}"; then
   if [[ "${major}" == 0 ]]; then
     minor=$((minor + 1)); patch=0
   else
