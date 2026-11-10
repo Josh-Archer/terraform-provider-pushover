@@ -457,11 +457,9 @@ goreleaser build --snapshot --clean
 
 ## Publishing
 
-[Release Please](.github/workflows/release-please.yml) opens release pull requests and maintains [CHANGELOG.md](CHANGELOG.md) from conventional commits. The manifest is currently `0.0.1`. Before 1.0.0, breaking changes bump the minor version and features bump the minor version. `ci` commits are omitted from the changelog. Release Please creates a draft GitHub release and does not create the git tag.
-
 Every merge to `main` whose CI (`Tests`) passes is tagged and released automatically by `.github/workflows/auto-release.yml` (next patch version, or next minor for a `type!:` / `BREAKING CHANGE` commit while the major version is 0). Merges that only touch docs, Markdown, `.github/`, `examples/` or Go tests are not released; see `scripts/next-release-version.sh`.
 
-The `release.yml` workflow still publishes when a `v*` tag is pushed, including tags created by auto-release. A manual run (`workflow_dispatch`) takes `release_tag`. If that tag is missing, the workflow creates it from the matching draft release's commit, then checks it out. GoReleaser publishes that draft and leaves the Release Please notes in place. GoReleaser changelog generation is disabled, so a tag push that has no draft release does not get generated notes. You can also provide a specific tag such as `v0.0.1` when running the workflow manually.
+The `release.yml` workflow publishes when a `v*` tag is pushed, including tags created by auto-release. A manual run (`workflow_dispatch`) takes an existing `release_tag`, such as `v0.0.1`. GoReleaser writes the release notes from the commits since the previous tag, leaving out `docs:`, `test:` and `chore:` commits.
 
 The release assets are generated in Terraform/OpenTofu registry-compatible format (including `terraform-registry-manifest.json`, checksums, and detached checksum signature).
 
