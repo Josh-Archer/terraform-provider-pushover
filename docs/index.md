@@ -10,12 +10,18 @@ The **Pushover** provider integrates with the [Pushover](https://pushover.net) p
 
 ## Example Usage
 
+The provider is published on the [OpenTofu registry](https://registry.opentofu.org/providers/josh-archer/pushover/latest)
+(latest: `v0.0.3`). It is not yet published on `registry.terraform.io`
+(manual namespace step, see [issue #51](https://github.com/Josh-Archer/terraform-provider-pushover/issues/51)),
+so Terraform configurations must use the explicit OpenTofu registry hostname.
+
 ```terraform
+# Works under both OpenTofu and Terraform.
 terraform {
   required_providers {
     pushover = {
-      source  = "Josh-Archer/pushover"
-      version = "~> 1.0"
+      source  = "registry.opentofu.org/josh-archer/pushover"
+      version = "~> 0.0.3"
     }
   }
 }
@@ -24,6 +30,10 @@ provider "pushover" {
   api_token = var.pushover_api_token
 }
 ```
+
+OpenTofu also resolves the short source `josh-archer/pushover` (same version
+constraint) via its default registry. For local builds, see the
+`dev_overrides` path in the README Quick Start.
 
 The `api_token` can also be supplied via the `PUSHOVER_API_TOKEN` environment variable, which is the recommended approach for CI/CD pipelines:
 
