@@ -1,0 +1,126 @@
+name: Registry Install Check
+
+# Keeps the documented install path honest (issue #51).
+# Read-only: queries registry APIs and runs `init`. Never deletes or re-signs releases.
+# Signature/checksum verification stays on (no -upgrade, no insecure flags, no dev_overrides).
+
+on:
+  pull_request:
+    paths:
+      - "README.md"
+      - "docs/**"
+      - "examples/**"
+      - ".github/workflows/registry-install.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "README.md"
+      - "docs/**"
+      - "examples/**"
+      - ".github/workflows/registry-install.yml"
+  schedule:
+    # Detect registry drift (e.g. a release yanked or index lag becoming permanent).
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs-honesty:
+    name: Docs claim a published registry version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail if docs claim a registry version that is not published
+        run: python3 scripts/check-docs-registry.py
+
+  install-tofu:
+    name: tofu init (OpenTofu registry)
+    needs: docs-honesty
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: opentofu/setup-opentofu@v1
+
+      - name: Install documented provider with retries (index lag)
+        run: |
+          set -euo pipefail
+          source="$(grep -oE 'source\s*=\s*"[^"]+"' examples/provider/main.tf | head -1 | cut -d'"' -f2)"
+          version="$(grep -oE 'version\s*=\s*"[^"]+"' examples/provider/main.tf | head -1 | cut -d'"' -f2)"
+          echo "Documented source=${source} version=${version}"
+          work="$(mktemp -d)"
+          cat > "${work}/main.tf" <<EOF
+          terraform {
+            required_providers {
+              pushover = {
+                source  = "${source}"
+                version = "${version}"
+              }
+            }
+          }
+          EOF
+          cd "${work}"
+          for attempt in 1 2 3 4 5; do
+            if tofu init -input=false; then
+              echo "tofu init succeeded on attempt ${attempt}."
+              exit 0
+            fi
+            echo "tofu init attempt ${attempt} failed; retrying in 60s..." >&2
+            sleep 60
+          done
+          echo "tofu init failed after 5 attempts." >&2
+          exit 1
+
+  install-terraform:
+    name: terraform init (explicit OpenTofu registry hostname)
+    needs: docs-honesty
+    # registry.terraform.io does not list this provider yet (manual Josh
+    # namespace step, see #51), so Terraform must use the explicit
+    # registry.opentofu.org hostname from the documented example.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.*"
+          terraform_wrapper: false
+
+      - name: Install documented provider with retries (index lag)
+        run: |
+          set -euo pipefail
+          source="$(grep -oE 'source\s*=\s*"[^"]+"' examples/provider/main.tf | head -1 | cut -d'"' -f2)"
+          version="$(grep -oE 'version\s*=\s*"[^"]+"' examples/provider/main.tf | head -1 | cut -d'"' -f2)"
+          echo "Documented source=${source} version=${version}"
+          case "${source}" in
+            *.*/*) ;;
+            *) echo "Terraform needs an explicit registry hostname until the provider is published on registry.terraform.io (#51)." >&2; exit 1 ;;
+          esac
+          work="$(mktemp -d)"
+          cat > "${work}/main.tf" <<EOF
+          terraform {
+            required_providers {
+              pushover = {
+                source  = "${source}"
+                version = "${version}"
+              }
+            }
+          }
+          EOF
+          cd "${work}"
+          for attempt in 1 2 3 4 5; do
+            if terraform init -input=false; then
+              echo "terraform init succeeded on attempt ${attempt}."
+              exit 0
+            fi
+            echo "terraform init attempt ${attempt} failed; retrying in 60s..." >&2
+            sleep 60
+          done
+          echo "terraform init failed after 5 attempts." >&2
+          exit 1
