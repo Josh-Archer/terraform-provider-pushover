@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -560,7 +561,7 @@ func (c *Client) doPostMultipart(ctx context.Context, path, contentType string, 
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return fmt.Errorf("sending request: %w", err)
+			return fmt.Errorf("sending request: %w", sanitizeTransportError(err))
 		}
 
 		respBody, err := io.ReadAll(resp.Body)
@@ -1142,7 +1143,7 @@ func (c *Client) doWithMaxRetries(ctx context.Context, maxRetries int, method, p
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return fmt.Errorf("sending request: %w", err)
+			return fmt.Errorf("sending request: %w", sanitizeTransportError(err))
 		}
 
 		respBody, err := io.ReadAll(resp.Body)
@@ -1304,4 +1305,33 @@ func (c *Client) wait(ctx context.Context, d time.Duration) error {
 // IsGroupKey returns true if the validation response indicates the key is a group key.
 func (v *ValidateResponse) IsGroupKey() bool {
 	return v.Group == 1
+}
+
+// diagnosticTransportError keeps the original cause available for errors.Is/As
+// without letting URLs embedded in a transport or redirect error reach logs.
+type diagnosticTransportError struct{ cause error }
+
+func (e diagnosticTransportError) Error() string {
+	if errors.Is(e.cause, context.Canceled) {
+		return "HTTP request canceled"
+	}
+	if errors.Is(e.cause, context.DeadlineExceeded) {
+		return "HTTP request deadline exceeded"
+	}
+	var timed interface{ Timeout() bool }
+	if errors.As(e.cause, &timed) && timed.Timeout() {
+		return "HTTP request timed out"
+	}
+	return "HTTP transport failed (credential-bearing details omitted)"
+}
+func (e diagnosticTransportError) Unwrap() error { return e.cause }
+func (e diagnosticTransportError) Timeout() bool {
+	var timed interface{ Timeout() bool }
+	return errors.As(e.cause, &timed) && timed.Timeout()
+}
+func sanitizeTransportError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return diagnosticTransportError{cause: err}
 }
